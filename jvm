@@ -1,0 +1,770 @@
+source $(dirname "$0")/.jvmrc
+
+# Global arguments
+args=("$@")
+
+
+jvm_has_julia_installed() {
+  [ "$(command -v julia)" != '' ]
+}
+
+jvm_pre_installed_version() {
+  if $(jvm_has_julia_installed); then
+    echo Julia version $(julia --version | awk '{print $3}') has been installed.
+  fi
+}
+
+# https://unix.stackexchange.com/questions/614299/how-to-split-a-string-by-character-in-bash-zsh
+jvm_split() { 
+  local - IFS="$2"
+  set -o noglob
+  eval "$3"'=( $1"")'
+}
+
+# Get latest_version
+# https://gist.github.com/lukechilds/a83e1d7127b78fef38c2914c4ececc3c
+jvm_get_latest_version() {
+  basename $(curl -fs -o/dev/null -w %{redirect_url} $1/releases/latest) | cut -c2-
+}
+
+jvm_get_nightly_url() {
+  local sys=$1
+  local full_arch=$2
+  [[ $full_arch == *"64" ]] && arch=x64 || arch=x32
+  [[ $full_arch == "mac"* ]] && suffix=mac64.dmg || suffix=$sys-$full_arch.tar.gz
+  echo https://julialangnightlies-s3.julialang.org/bin/$sys/$arch/julia-latest-${sys}64.tar.gz
+}
+
+# https://gist.github.com/lukechilds/a83e1d7127b78fef38c2914c4ececc3c
+# Not in use
+jvm_get_latest_release() {
+  curl --silent "https://api.github.com/repos/$1/releases/latest" | # Get latest release from GitHub api
+    grep '"tag_name":' |                                            # Get tag line
+    sed -E 's/.*"([^"]+)".*/\1/'                                # Pluck JSON value
+  }
+
+# Replace jq to something else
+jvm_get_upstream_url(){
+  local upstream_name=$1
+  # jq version
+  # curl -s "https://raw.githubusercontent.com/johnnychen94/jill.py/master/jill/config/sources.json" | jq ".upstream.$1.urls[0]"
+  curl -s "https://raw.githubusercontent.com/johnnychen94/jill.py/master/jill/config/sources.json" | awk "/$1/ {getline; getline; getline; print}"  | xargs
+}
+
+
+jvm_get_upstream_checksum_url(){
+  local upstream_name=$1
+  echo $(jvm_get_upstream_url $upstream_name | awk -F'$' '{print $1}')checksums/
+}
+
+jvm_get_upstream_list(){
+  # curl -s "https://raw.githubusercontent.com/johnnychen94/jill.py/master/jill/config/sources.json" | awk '/"name"/ {print p " " $0 }{p=$0} ' | awk -F: '{print $1 ": " $3}' | tr -d '"' | awk '{$1=$1;print "  " NR ". " $0}'  
+  curl -s "https://raw.githubusercontent.com/johnnychen94/jill.py/master/jill/config/sources.json" | awk '/"name"/ {print p " " $0 }{p=$0} ' | awk -F: '{print $1 ": " $3}' | tr -d '"' | awk '{$1=$1;print $0}'  
+}
+
+
+jvm_get_version_from_json() {
+  local json_dir=$(dirname "$0")
+  VersionList=($(awk '/files/ {print line} {line =$0}' $json_dir/versions.json \
+    | awk -F: '{print $1}'))
+      for version in "${VersionList[@]}"; do 
+        echo $version
+      done
+   }
+
+jvm_get_version_from_json_online() {
+  local versions=($(curl -s "https://julialang-s3.julialang.org/bin/versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}'))
+      for version in "${versions[@]}"; do 
+        echo $version
+      done
+  }
+
+
+jvm_ls_stable() {
+    version_list=$(jvm_get_version_from_json_online)
+    echo "${version_list[@]}" | grep -Ev "rc|alpha|beta"  | tr -d '"' | sort -r 
+  }
+
+jvm_ls_all() {
+  version_list=$(jvm_get_version_from_json_online)
+  echo "${version_list[@]}" | tr -d '"' | sort -r
+}
+
+# Query the version file
+jvm_query_latest_stable() {
+  echo "Querying lastest Julia version ..."
+  INSTALLING_VER=$(jvm_get_latest_version https://github.com/JuliaLang/julia)
+  echo "Latest stable version is $INSTALLING_VER"
+}
+
+
+jvm_search() {
+  echo "Querying Julia version $1 ..."
+  local results 
+  # Clean the raw version input
+  local version_raw=$1
+  local version_tmp=( ${version_raw//./ } )
+  if [ -z ${version_tmp[1]} ] || [ -z ${version_tmp[2]} ] ; then 
+    has_exact_version=0
+  else 
+    has_exact_version=1
+  fi
+
+  if [ -z ${version_tmp[1]} ]; then 
+    version_tmp[1]="[[:digit:]]" 
+  fi 
+  if [ -z ${version_tmp[2]} ]; then 
+    version_tmp[2]="[[:digit:]]" 
+  fi 
+  # Clean the input for version query
+  local version_tmp="${version_tmp[0]}\\.${version_tmp[1]}\\.${version_tmp[2]}"
+
+  version_list=$(jvm_get_version_from_json_online)
+  # Grep all 
+  matched_version=($(printf -- '%s\n'  $version_list | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  # Grep stable version only
+  matched_version_stable=($(printf -- '%s\n'  $version_list | grep -Ev "rc|beta|alpha" | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  # Grep stable version only
+  matched_version_rc=($(printf -- '%s\n'  $version_list | grep -E "$version_tmp" | grep -E "rc|beta|alpha" | sort -r | tr -d '"'))
+
+  ask_for_rc=$(echo $version_raw | grep -cE "rc|beta|alpha" )
+
+  if [ $has_exact_version == 1 ]; then
+    if [ -n "$matched_version" ]; then
+      if [ -n "$matched_version_stable" ]; then
+        echo "Available versions found:"
+        printf -- ' %s\n' "${matched_version_stable[@]}"
+        result=$1
+      elif [ -n "$matched_version_rc" ]; then
+        if [ $ask_for_rc == 1 ] ; then
+          echo "Available versions found:"
+          printf -- '%s\n' "${matched_version_rc[@]}"
+        else 
+          echo "Available versions found:"
+          echo Warning: Only rc or beta version are available.
+          printf -- '%s\n' "${matched_version_rc[@]}"
+        fi
+      fi
+    else 
+      echo "Error: Unknown version is given: $1"
+      exit
+    fi
+  else 
+    if [ -n "$matched_version" ]; then
+      if [ -n "$matched_version_stable" ]; then
+        echo "Available versions found:"
+        printf -- '%s\n' "${matched_version_stable[@]}"
+      elif [ -n "$matched_version_rc" ]; then
+        echo "Available versions found:" 
+        echo Warning: Only rc or beta version are found.
+        printf -- '%s\n' "${matched_version_rc[@]}"
+      fi
+    else 
+      echo "Error: version given not found: $1"
+      exit
+    fi
+  fi
+}
+
+
+
+
+jvm_query_version_json() {
+  echo "Querying Julia version $1 ..."
+  # Clean the raw version input
+  local version_raw=$1
+  local version_tmp=( ${version_raw//./ } )
+  if [ -z ${version_tmp[1]} ] || [ -z ${version_tmp[2]} ] ; then 
+    has_exact_version=0
+  else 
+    has_exact_version=1
+  fi
+
+  if [ -z ${version_tmp[1]} ]; then 
+    version_tmp[1]="[[:digit:]]" 
+  fi 
+  if [ -z ${version_tmp[2]} ]; then 
+    version_tmp[2]="[[:digit:]]" 
+  fi 
+  # Clean the input for version query
+  local version_tmp="${version_tmp[0]}\\.${version_tmp[1]}\\.${version_tmp[2]}"
+
+  version_list=$(jvm_get_version_from_json_online)
+  # Grep all 
+  matched_version=($(printf -- '%s\n'  $version_list | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  # Grep stable version only
+  matched_version_stable=($(printf -- '%s\n'  $version_list | grep -Ev "rc|beta|alpha" | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  # Grep stable version only
+  matched_version_rc=($(printf -- '%s\n'  $version_list | grep -E "$version_tmp" | grep -E "rc|beta|alpha" | sort -r | tr -d '"'))
+
+  ask_for_rc=$(echo $version_raw | grep -cE "rc|beta|alpha" )
+
+  if [ $has_exact_version == 1 ]; then
+    if [ -n "$matched_version" ]; then
+      if [ -n "$matched_version_stable" ]; then
+        echo "Available versions found:"
+        printf -- '%s\n' " ${matched_version_stable[@]}"
+        echo Installing version $1 ... 
+        INSTALLING_VER=$1
+      elif [ -n "$matched_version_rc" ]; then
+        if [ $ask_for_rc == 1 ] ; then
+          echo "Available versions found:"
+          printf -- '%s\n' " ${matched_version_rc[@]}"
+          echo Installing version ${matched_version_rc} by default
+          INSTALLING_VER=${matched_version_rc} 
+        else 
+          echo "Available versions found:"
+          echo Warning: Only rc or beta version are available.
+          printf -- '%s\n' " ${matched_version_rc[@]}"
+          echo Installing version ${matched_version_rc} by default
+          INSTALLING_VER=${matched_version_rc} 
+        fi
+      fi
+    else 
+      echo "Error: Unknown version is given: $1"
+      exit
+    fi
+  else 
+    if [ -n "$matched_version" ]; then
+      if [ -n "$matched_version_stable" ]; then
+        echo "Available versions found:"
+        printf -- '%s\n' " ${matched_version_stable[@]}"
+        echo Installing the latest version $matched_version_stable of version $1 by default. 
+        INSTALLING_VER=${matched_version_stable[0]}  
+      elif [ -n "$matched_version_rc" ]; then
+        echo Available versions found: 
+        echo Warning: Only rc or beta version are available.
+        printf -- '%s\n' " ${matched_version_rc[@]}"
+        echo Installing the latest $1 version ${matched_version_stable[0]} by default
+        # INSTALLING_VER=${matched_version_stable[0]}  
+        INSTALLING_VER=${matched_version_rc[0]}  
+      fi
+    else 
+      echo "Error: Unknown version is given: $1"
+      exit
+    fi
+  fi
+}
+
+
+
+
+jvm_get_version() {
+  if [ $# == 1 ]
+  then
+    jvm_query_latest_stable 
+  elif [ $# == 2 ] 
+  then
+    jvm_query_version_json $2 
+  else 
+    echo "Unsupported number of arguments: ${args[@]}"
+  fi
+}
+
+
+
+# Get the download url from json file
+# Try to avoid using jq 
+get_url(){
+  jq  '."0.7.0-rc2".files[2].triplet' versions.json
+}
+
+# Check if version file exist
+check_version_file() {
+  if [ -f "$JULIA_VERSION_FILE" ]; then
+    echo "$JULIA_VERSION_FILE exists."
+  else 
+    echo "verisons.json is missing."
+  fi
+}
+
+get_url_from_platform_arch_version() {
+  local sys=$1
+  local full_arch=$2
+  local version=$3
+  [[ $full_arch == *"64" ]] && arch=x64 || arch=x32
+  [[ $full_arch == "mac"* ]] && suffix=mac64.dmg || suffix=$sys-$full_arch.tar.gz
+  local minor_version=$(echo $version | cut -d. -f1-2 | cut -d- -f1)
+  local url=$(jvm_get_upstream_url $UPSTREAM_NAME)
+  local filename=julia-$version-$suffix
+  eval "echo $url"
+}
+
+jvm_get_sys_info() {
+  eval "$1=$(uname -m)"
+  eval "$2=$(echo $(uname -s) | tr '[:upper:]' '[:lower:]')"
+}
+
+jvm_checkfolder() { #$1 action #2 Dir
+  local action=$1
+  local dir=$2
+  echo "Trying to $action to $dir"
+  if [ ! -d $dir ]; then 
+    echo "> Default $action folder  \"$dir\" is not a valid path."
+    read -p "> Do you want to create the folder \"$dir\" ? (y/n) " reply 
+    if [[ ! $reply =~ ^[Yy] ]]; then 
+      echo Aborted 
+      exit 1
+    else 
+      mkdir -p $dir
+    fi
+  fi
+}
+
+jvm_confirm() { 
+  local version=$1
+  read -p "Continue to download Julia $version? (y/n) " choice
+  case "$choice" in 
+    y|Y|yes ) true ;;
+    n|N|no ) echo "Aborted."  
+      false ;; 
+    * ) echo "Invalid input, please enter yes or no"
+      false
+      ;;
+  esac
+}
+
+jvm_confirm2() { 
+  read -p "$@" choice
+  case "$choice" in 
+    y|Y|yes ) return ;;
+    n|N|no ) echo "Aborted."  
+      false ;; 
+    * ) echo "Invalid input, please enter yes or no"
+      false
+      ;;
+  esac
+}
+
+
+# Reference from: nvm_compute_check_sum 
+#Input: filename, e.g., julia-1.4.1.tar.gz
+jvm_compute_checksum() {
+  local julia_tarball="${1-}"
+  if [ -z "$julia_tarball" ]; then 
+   echo "Provided file to checksum is empty." 
+  elif ! [ -f "$julia_tarball" ]; then 
+   echo "Provided file to checksum does not exist."
+  fi
+  # Use sha256sum only
+  sha256sum $julia_tarball | awk '{print $1}'
+}
+
+jvm_get_remote_checksum() {
+  # Clean the version thing, write a independent filename generator
+  local version=$1 
+  local arch
+  local platform 
+  jvm_get_sys_info arch platform
+  local julia_remote_tarball=julia-$version-$platform-$arch
+  local checksum_url=$(jvm_get_upstream_checksum_url $UPSTREAM_NAME)
+  local remote_checksum=($(curl -s "${checksum_url}julia-$version.sha256" | grep $julia_remote_tarball))
+  echo $remote_checksum
+}
+
+
+jvm_compare_checksum() {
+  local version=${1-}
+  local julia_tarball="$JULIA_DOWNLOAD_DIR/julia-${1-}.tar.gz"
+  if [ -z "$julia_tarball" ]; then 
+   echo "Error: Provided file to checksum is empty." 
+   return 1
+  elif ! [ -f "$julia_tarball" ]; then 
+   echo "Error: Provided file to checksum does not exist."
+   return 1
+  fi
+
+  local computed_sum=$(jvm_compute_checksum ${julia_tarball})
+  local checksum="$(jvm_get_remote_checksum $version)"
+  if [ -z "${checksum}" ]; then 
+    echo "Error: Provided checksum to compare is empty"
+    return 
+  fi
+  if [ -z "${computed_sum}" ]; then 
+    echo "Computed checksum of '$julia_tarball' is empty."
+    echo "Warning: continues without checksum verification. "
+    return 
+  elif [ "${computed_sum}" != "${checksum}" ]; then 
+    echo "Error: checksums do not match: '${computed_sum}' found, '${checksum}' is expected"
+    return 1
+  fi
+  echo "Checksum matches with remote for version $version"
+  return 
+}
+
+
+download_tarball() {
+  local url=$1
+  local version=$2
+  echo " Downloading from $url"
+  cd $JULIA_DOWNLOAD_DIR
+  if  [ ! -f julia-$version.tar.gz ]; then
+    echo -n "    "
+    if $WGET_JULIA -c $url -O julia-$version.tar.gz; then
+        echo " Downloading finished."
+        jvm_compare_checksum $version
+      else 
+        echo " Download fails. Please check your connection."
+        rm julia-$version.tar.gz
+    fi
+  else
+    echo " Julia $version is already downloaded as $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"
+    jvm_compare_checksum $version
+    local checksum_status=$?
+    if $(exit $checksum_status); then 
+      return 
+    else   
+      local choice 
+      read -p "Do you want to remove it and redownload? [y/n] " choice
+      case "$choice" in 
+        y|Y|yes ) 
+          rm -i $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz
+          download_tarball $url $version
+          ;;
+        n|N|no ) echo "Aborted."  
+          return 1
+          ;;
+        *) echo "Please input a valid command "
+      esac
+    fi
+  fi
+}
+
+has_symlink_version() {
+  local version=$1
+  local symlink_version_dir=$JULIA_SYMLINK_DIR/julia-$version
+  [ -L $symlink_version_dir ]  
+}
+
+has_broken_symlink_version() {
+  local version=$1
+  local symlink_version_dir=$JULIA_SYMLINK_DIR/julia-$version
+  [ ! -e $symlink_version_dir ]  
+}
+
+
+jvm_load() {
+  local version=$1
+  local bin_julia=$JULIA_INSTALL_DIR/julia-$version/bin/julia 
+  if $(has_symlink_version $version) ; then 
+    echo "julia-$version already exist in $JULIA_SYMLINK_DIR" 
+  else
+    if [ -e $bin_julia ]; then
+      echo "Loading julia-$version"
+      ln -s $bin_julia $JULIA_SYMLINK_DIR/julia-$version
+    else
+      echo Error: Directory $bin_julia does not exist.
+      echo Error: The corresponding version may not be installed.
+    fi
+  fi
+}
+
+jvm_unload() {
+  local version=$1
+  if $(has_symlink_version $version) ; then 
+    rm $JULIA_SYMLINK_DIR/julia-$version
+    echo Symlink julia-$version has been removed from $JULIA_SYMLINK_DIR
+  else
+    echo julia-$version is not loaded.
+    echo No operation is performed.
+  fi
+}
+
+jvm_installed_version() {
+  echo "$(ls $JULIA_INSTALL_DIR)" | cut -d "-" -f2- 
+}
+
+jvm_loaded_version() {
+  ls $JULIA_SYMLINK_DIR | grep julia- | cut -d "-" -f2- 
+}
+
+jvm_download_version() {
+  ls $JULIA_DOWNLOAD_DIR |  grep -o "julia-.*.tar.gz"  
+}
+
+jvm_purge() {
+  echo Note that the default julia symlink will not be purged.
+  local loaded_version=$(jvm_loaded_version)
+  if [ -n "$loaded_version" ]; then
+    echo The following version has been loaded:
+    echo "$loaded_version" | awk '{print "  " $1}'
+    if jvm_confirm2 "Warning: the purge command will unload/remove all julia symbolic links? [y/n] " ;  then
+      for version in $loaded_version
+      do
+        jvm_unload $version
+        echo julia-$version has been unloaded.
+      done
+    fi
+  else
+    echo No Julia version is loaded. There is nothing to purge.
+  fi
+
+}
+
+
+jvm_switch() {
+  local version=$1
+  local installed_version=$(jvm_installed_version)
+  if [[ "${installed_version[@]}" =~  "$version" ]]; then
+    continue
+  else 
+    echo julia version $version seems not be installed.
+    echo Please check your input or the installation directory $JULIA_INSTALL_DIR   
+    exit 1
+  fi
+
+  if [ -n "$(command -v julia)" ] ; then
+    local existing_version=$(julia --version | cut -d " " -f3-) 
+    if [ $existing_version = $version ]; then
+      echo Your are already at version $version 
+      echo No operation will be performed.
+      return 
+    fi
+    echo Current 'julia' alias has been selected as $(julia --version)
+    if jvm_confirm2 "Do you want to switch to julia $version [y/n] ? "; 
+    then 
+      ln -sf $JULIA_INSTALL_DIR/julia-$version/bin/julia $JULIA_SYMLINK_DIR/julia
+    fi
+  else 
+    echo  "'julia' alias has been selected as julia $version. " 
+  fi
+}
+
+jvm_migrate() { 
+  local objective=$@
+  if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
+    echo testing
+    # check if dir exist 
+    # if not create one ?
+    # overwrite behavior ? 
+    # What is the preference?
+  else 
+    echo Check your input format, it should be e.g., jvm migrate 1.5 to 1.6
+    echo Note that only major and minor version are supported.
+    exit 1 
+  fi
+}
+
+
+jvm() {
+  n_args=${#args[@]}
+
+  for i in $args 
+  do 
+    case $i in
+      '-h' | 'help' | '--help')
+        echo "jvm install" 
+        echo "jvm remove" 
+        echo "jvm load" 
+        echo "jvm unload" 
+        echo "jvm unloaded" 
+        echo "jvm status" 
+        echo "jvm avail" 
+        echo "jvm search" 
+        echo "jvm installed" 
+        echo "jvm switch" 
+        echo "jvm migrate" 
+        echo "jvm upstream" 
+        echo "jvm update" 
+    esac
+  done
+
+    # local COMMAND 
+    # COMMAND="${1-}"
+    # shift
+
+    case $args in 
+      "install")
+        jvm_get_sys_info arch platform
+        jvm_get_version "${args[@]}" 
+        local version=$INSTALLING_VER
+        local url=$(get_url_from_platform_arch_version $platform $arch $version)
+        jvm_confirm $version
+        local is_confirmed=$? 
+        if $(exit $is_confirmed); then
+          jvm_checkfolder download $JULIA_DOWNLOAD_DIR
+          download_tarball $url $version
+        else 
+          exit 1
+        fi
+        jvm_checkfolder install $JULIA_INSTALL_DIR
+        if [ -d "$JULIA_INSTALL_DIR/julia-$version" ]; then 
+          echo Installation folder exist. 
+          read -p "Overwrite the existing contents? [y/n] "  choice
+          case "$choice" in 
+            y|Y|yes ) 
+              echo "tar xzf $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz -C  $JULIA_INSTALL_DIR/julia-$version --totals"
+              tar xzf $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz -C  $JULIA_INSTALL_DIR/ --totals
+              echo Extracting done.
+              ;;
+            n|N|no ) echo "Aborted."  
+              exit 1
+              ;; 
+            * ) echo "Invalid input, please enter yes or no"
+              exit 1 
+              ;;
+          esac
+        else
+          mkdir $JULIA_INSTALL_DIR/julia-$version
+          tar xzf "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz" -C $JULIA_INSTALL_DIR --totals
+          echo Extracting done.
+        fi
+
+        # Create links
+        echo Creating symbolic link julia-$version in $JULIA_SYMLINK_DIR
+        jvm_checkfolder create-symlink $JULIA_SYMLINK_DIR
+        ln -sf $JULIA_INSTALL_DIR/julia-$version/bin/julia $JULIA_SYMLINK_DIR/julia-$version
+        echo Installation done.
+        ;;
+      "remove"|"rm")
+        echo You have installed the following version:
+        echo "$(jvm_installed_version)"
+        read -p "Enter the version you would like to remove: " rm_version 
+        local rm_symlink=$JULIA_SYMLINK_DIR/julia-$rm_version
+        local rm_bin=$JULIA_INSTALL_DIR/julia-$rm_version
+        #check in jvm_installed
+        #check in jvm_symlink
+        if jvm_confirm2 "Warning: you are about remove $rm_version from $JULIA_INSTALL_DIR. [y/n]" ;  then
+          rm -rf $rm_bin 
+          [ -L $rm_symlink ] && rm -rf $rm_symlink
+        fi
+
+        ;;
+      "download")
+        jvm_get_sys_info arch platform
+        jvm_get_version "${args[@]}" 
+        local version=$INSTALLING_VER
+        local url=$(get_url_from_platform_arch_version $platform $arch $version)
+        jvm_confirm $version
+        local is_confirmed=$? 
+        if $(exit $is_confirmed); then
+          jvm_checkfolder download $JULIA_DOWNLOAD_DIR
+          download_tarball $url $version
+        else 
+          exit 1
+        fi
+      ;;
+      "load")
+        jvm_load ${args[1]}
+        ;;
+      "unload")
+        jvm_unload ${args[1]} 
+        ;;
+      "loaded")
+        echo "$(jvm_loaded_version)"
+        ;;
+      "status"|"st")
+        echo =========================
+        echo "Installed version" $JULIA_INSTALL_DIR
+        echo "$(jvm_installed_version)"
+        echo =========================
+        echo "Loaded version" $JULIA_SYMLINK_DIR
+        echo "$(jvm_loaded_version)"
+        echo =========================
+        echo "Downloaded version" $JULIA_DOWNLOAD_DIR
+        echo "$(jvm_download_version)"
+        echo =========================
+        echo List all Julia version installed 
+        echo List the installed Julia version 
+        echo Possible to track Project.toml? 
+        echo List installed Julia version 
+        echo List download Julia version 
+        echo List loaded Julia version
+        echo List shared Project.toml if possible
+        ;;
+      "available"|"avail")
+        case ${args[1]} in
+          "stable"|"")
+            jvm_ls_stable  
+            ;;
+          "all")
+            echo nightly
+            jvm_ls_all
+            ;;
+        esac
+        ;;
+      "search")
+        if [ "${args[1]}" != "" ]; then
+          jvm_search ${args[1]} 
+        else 
+          echo $(jvm_get_version "")
+        fi
+        ;;
+      "switch")
+        jvm_switch ${args[1]} 
+        ;;
+      "nightly") 
+        jvm_get_sys_info arch platform
+        local url=$(jvm_get_nightly_url $platform $arch)
+        jvm_confirm nightly 
+        local is_confirmed=$? 
+        if $(exit $is_confirmed); then
+          jvm_checkfolder download $JULIA_DOWNLOAD_DIR
+          download_tarball $url nightly
+        else 
+          exit 1
+        fi
+        jvm_checkfolder install $JULIA_INSTALL_DIR
+        if [ -d "$JULIA_INSTALL_DIR/julia-nightly" ]; then 
+          echo Installation folder exist. 
+          read -p "Overwrite the existing contents? [y/n] "  choice
+          case "$choice" in 
+            y|Y|yes ) 
+              tar xzf $JULIA_DOWNLOAD_DIR/julia-nightly.tar.gz -C  $JULIA_INSTALL_DIR/julia-nightly --totals --strip-components=1
+              echo Extracting done.
+              ;;
+            n|N|no ) echo "Aborted."  
+              exit 1
+              ;; 
+            * ) echo "Invalid input, please enter yes or no"
+              exit 1 
+              ;;
+          esac
+        else
+          mkdir $JULIA_INSTALL_DIR/julia-nightly
+          tar xzf "$JULIA_DOWNLOAD_DIR/julia-nightly.tar.gz" -C $JULIA_INSTALL_DIR/julia-nightly --totals --strip-components=1
+          echo Extracting done.
+        fi
+
+        # Create links
+        echo Creating symbolic link julia-nightly in $JULIA_SYMLINK_DIR
+        jvm_checkfolder create-symlink $JULIA_SYMLINK_DIR
+        ln -sf $JULIA_INSTALL_DIR/julia-nightly/bin/julia $JULIA_SYMLINK_DIR/julia-nightly
+        echo Installation done.
+        ;;
+      "installed")
+        echo List all Julia version installed 
+        echo "$(jvm_installed_version)"
+        ;;
+      "upstream")
+        echo Current upstream is $UPSTREAM_NAME
+        echo The available upstreams are: 
+        local upstream_list=$(jvm_get_upstream_list)
+        local upstream_short=($(echo "${upstream_list[@]}" | awk -F[.:] '{print $1}'))
+        jvm_split "$upstream_list" , upstream_menu
+        unset upstream_menu[-1]
+        echo "${upstream_list[@]}" | awk -F[.:] '{print "  " NR ". " $1 ": " $2}'
+        read -p "Select your preferred upstream. (Enter number [1-${#upstream_menu[@]}]): " upstream_choice
+
+        if [ $upstream_choice -eq $upstream_choice ] && [ $upstream_choice -le ${#upstream_menu[@]} ] ; then 
+          local jvm_dir=$(dirname "$0")
+          sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" $jvm_dir/.jvmrc
+          echo Your upstream is switched to ${upstream_menu[$upstream_choice-1]} 
+        else
+          echo "Please enter valid input."
+        fi
+        ;;
+      "purge")
+        jvm_purge
+        ;;
+      "version" | "-v" | "--version")
+        echo "Julia version management (JVM) version 0.1.0"
+        ;;
+      *) 
+        echo Check you input 
+    esac
+  }
+
+jvm
+
+

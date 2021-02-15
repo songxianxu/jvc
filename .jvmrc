@@ -1,0 +1,10 @@
+JULIA_DOWNLOAD_DIR=$HOME/Downloads/Julia/
+JULIA_INSTALL_DIR=$HOME/apps/julia/
+JULIA_SYMLINK_DIR=$HOME/.local/bin/
+UPSTREAM_NAME=BFSU
+WGET_JULIA="wget -q --show-progress"
+
+
+# Deprecated
+JULIA_VERSION_FILE=versions.json
+
