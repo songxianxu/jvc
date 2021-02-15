@@ -133,7 +133,7 @@ jvm_search() {
     if [ -n "$matched_version" ]; then
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
-        printf -- ' %s\n' "${matched_version_stable[@]}"
+        printf -- '%s\n' "${matched_version_stable[@]}"
         result=$1
       elif [ -n "$matched_version_rc" ]; then
         if [ $ask_for_rc == 1 ] ; then
@@ -203,19 +203,19 @@ jvm_query_version_json() {
     if [ -n "$matched_version" ]; then
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
-        printf -- '%s\n' " ${matched_version_stable[@]}"
+        printf -- '%s\n' "${matched_version_stable[@]}"
         echo Installing version $1 ... 
         INSTALLING_VER=$1
       elif [ -n "$matched_version_rc" ]; then
         if [ $ask_for_rc == 1 ] ; then
           echo "Available versions found:"
-          printf -- '%s\n' " ${matched_version_rc[@]}"
+          printf -- '%s\n' "${matched_version_rc[@]}"
           echo Installing version ${matched_version_rc} by default
           INSTALLING_VER=${matched_version_rc} 
         else 
           echo "Available versions found:"
           echo Warning: Only rc or beta version are available.
-          printf -- '%s\n' " ${matched_version_rc[@]}"
+          printf -- '%s\n' "${matched_version_rc[@]}"
           echo Installing version ${matched_version_rc} by default
           INSTALLING_VER=${matched_version_rc} 
         fi
@@ -228,13 +228,13 @@ jvm_query_version_json() {
     if [ -n "$matched_version" ]; then
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
-        printf -- '%s\n' " ${matched_version_stable[@]}"
+        printf -- '%s\n' "${matched_version_stable[@]}"
         echo Installing the latest version $matched_version_stable of version $1 by default. 
         INSTALLING_VER=${matched_version_stable[0]}  
       elif [ -n "$matched_version_rc" ]; then
         echo Available versions found: 
         echo Warning: Only rc or beta version are available.
-        printf -- '%s\n' " ${matched_version_rc[@]}"
+        printf -- '%s\n' "${matched_version_rc[@]}"
         echo Installing the latest $1 version ${matched_version_stable[0]} by default
         # INSTALLING_VER=${matched_version_stable[0]}  
         INSTALLING_VER=${matched_version_rc[0]}  
@@ -549,10 +549,9 @@ jvm_migrate() {
 jvm() {
   n_args=${#args[@]}
 
-  for i in $args 
-  do 
-    case $i in
-      '-h' | 'help' | '--help')
+    case $args in 
+    "-h"| "help" | "--help")
+        echo "To be completed."
         echo "jvm install" 
         echo "jvm remove" 
         echo "jvm load" 
@@ -566,14 +565,7 @@ jvm() {
         echo "jvm migrate" 
         echo "jvm upstream" 
         echo "jvm update" 
-    esac
-  done
-
-    # local COMMAND 
-    # COMMAND="${1-}"
-    # shift
-
-    case $args in 
+      ;;
       "install")
         jvm_get_sys_info arch platform
         jvm_get_version "${args[@]}" 
@@ -761,7 +753,7 @@ jvm() {
         echo "Julia version management (JVM) version 0.1.0"
         ;;
       *) 
-        echo Check you input 
+        echo Unsupported arguements. Check your input.
     esac
   }
 

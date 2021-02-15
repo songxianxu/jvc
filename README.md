@@ -1,6 +1,6 @@
 # JVM - Julia version management (experimental)
 
-**This is a project still in experimental stage. Use with care.**
+**This is a project still in experimental stage. Many syntax and notations are not standardized yet. Use with care.**
 **There are many things to be fixed as I am not good in writing shell script. Comments are welcome.**
 
 Objectives: Inspired from `jill.sh`, `jill.py`, and `nvm-sh`. A possible realization to management Julia versions.
@@ -28,6 +28,7 @@ What the script will do? In .jvmrc, various environment variables can be found
 
 1. Clone this repo in your prefered place such as `~/.jvm`   
 2. Make it visible by appending `export PATH=$PATH:~/.jvm` to your shell rc file such as `~/.bashrc`, `~/.zshrc`
+3. Make it executable, `chmod +x ~/.jvm/jvm`
 
 
 ## Basic usage
