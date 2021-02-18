@@ -29,6 +29,17 @@ jvc_split() {
   eval "$3"'=( $1"")'
 }
 
+# delimiter $1
+# Input string $2
+jvc_split2() {
+  local delimiter
+  local input
+  delimiter=$1
+  input=$2
+  awk -F"$delimiter" '{for (i=1;i<=NF;i++) print $i}' <<< "$input"
+}
+
+
 # Get latest_version
 # https://gist.github.com/lukechilds/a83e1d7127b78fef38c2914c4ececc3c
 jvc_get_latest_version() {
@@ -74,22 +85,24 @@ jvc_get_upstream_list(){
 
 jvc_get_version_from_json() {
   local json_dir
-  json_dir=$(dirname "$0")
-  VersionList=($(awk '/files/ {print line} {line =$0}' "$json_dir"/versions.json \
-    | awk -F: '{print $1}'))
-      for version in "${VersionList[@]}"; do 
-        echo "$version"
-      done
-    }
+  # json_dir=$(dirname "$0")
+  json_dir=$1
+  VersionList=$(awk '/files/ {print line} {line =$0}' "$json_dir"/versions.json \
+    | awk -F: '{print $1}')
 
-  jvc_get_version_from_json_online() {
-    local versions
-    versions=($(curl -s "https://julialang-s3.julialang.org/bin/versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}'))
-    for version in "${versions[@]}"; do 
-      echo "$version"
-    done
-  }
+  for version in "${VersionList[@]}"; do 
+    echo "$version"
+  done
+}
 
+
+jvc_get_version_from_json_online() {
+  local versions
+  versions=$(curl -s "https://julialang-s3.julialang.org/bin/versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}')
+  for version in "${versions[@]}"; do 
+    echo "$version"
+  done
+}
 
 jvc_ls_stable() {
   version_list=$(jvc_get_version_from_json_online)
@@ -98,6 +111,7 @@ jvc_ls_stable() {
 
 jvc_ls_all() {
   version_list=$(jvc_get_version_from_json_online)
+  echo "  nightly"
   echo "${version_list[@]}" | tr -d '"' | sort -r
 }
 
@@ -110,13 +124,12 @@ jvc_query_latest_stable() {
 
 
 jvc_search() {
-  echo "Querying Julia version $1 ..."
-  local results 
+  echo Querying Julia version "$1" ...
   # Clean the raw version input
   local version_raw
-  version_raw=$1
+  version_raw="$1"
   local version_tmp
-  version_tmp=( ${version_raw//./ } )
+  jvc_split "$version_raw" . version_tmp
   if [ -z "${version_tmp[1]}" ] || [ -z "${version_tmp[2]}" ] ; then 
     has_exact_version=0
   else 
@@ -136,11 +149,11 @@ jvc_search() {
 
   version_list=$(jvc_get_version_from_json_online)
   # Grep all 
-  matched_version=($(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  matched_version=$(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | sort -r | tr -d '"')
   # Grep stable version only
-  matched_version_stable=($(printf -- '%s\n'  "$version_list" | grep -Ev "rc|beta|alpha" | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  matched_version_stable=$(printf -- '%s\n'  "$version_list" | grep -Ev "rc|beta|alpha" | grep -E "$version_tmp" | sort -r | tr -d '"')
   # Grep stable version only
-  matched_version_rc=($(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | grep -E "rc|beta|alpha" | sort -r | tr -d '"'))
+  matched_version_rc=$(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | grep -E "rc|beta|alpha" | sort -r | tr -d '"')
 
   ask_for_rc=$(echo "$version_raw" | grep -cE "rc|beta|alpha" )
 
@@ -149,7 +162,6 @@ jvc_search() {
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
         printf -- '%s\n' "${matched_version_stable[@]}"
-        result=$1
       elif [ -n "$matched_version_rc" ]; then
         if [ "$ask_for_rc" == 1 ] ; then
           echo "Available versions found:"
@@ -190,7 +202,7 @@ jvc_query_version_json() {
   local version_raw
   version_raw=$1
   local version_tmp
-  version_tmp=( ${version_raw//./ } )
+  jvc_split "$version_raw" . version_tmp
   if [ -z "${version_tmp[1]}" ] || [ -z "${version_tmp[2]}" ] ; then 
     has_exact_version=0
   else 
@@ -208,12 +220,15 @@ jvc_query_version_json() {
   version_tmp="${version_tmp[0]}\\.${version_tmp[1]}\\.${version_tmp[2]}"
 
   version_list=$(jvc_get_version_from_json_online)
+  local matched_version
+  local matched_version_stable
+  local matched_version_rc
   # Grep all 
-  matched_version=($(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  matched_version=$(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | sort -r | tr -d '"')
   # Grep stable version only
-  matched_version_stable=($(printf -- '%s\n'  "$version_list" | grep -Ev "rc|beta|alpha" | grep -E "$version_tmp" | sort -r | tr -d '"'))
+  matched_version_stable=$(printf -- '%s\n'  "$version_list" | grep -Ev "rc|beta|alpha" | grep -E "$version_tmp" | sort -r | tr -d '"')
   # Grep stable version only
-  matched_version_rc=($(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | grep -E "rc|beta|alpha" | sort -r | tr -d '"'))
+  matched_version_rc=$(printf -- '%s\n'  "$version_list" | grep -E "$version_tmp" | grep -E "rc|beta|alpha" | sort -r | tr -d '"')
 
   ask_for_rc=$(echo "$version_raw" | grep -cE "rc|beta|alpha" )
 
@@ -221,21 +236,22 @@ jvc_query_version_json() {
     if [ -n "$matched_version" ]; then
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
-        printf -- '%s\n' "${matched_version_stable[@]}"
+        printf -- '%s\n' "$matched_version_stable"
         echo Installing version "$1" ... 
         INSTALLING_VER=$1
       elif [ -n "$matched_version_rc" ]; then
         if [ "$ask_for_rc" == 1 ] ; then
           echo "Available versions found:"
-          printf -- '%s\n' "${matched_version_rc[@]}"
-          echo Installing version "${matched_version_rc}" by default
-          INSTALLING_VER=${matched_version_rc} 
+          printf -- '%s\n' "$matched_version_rc"
+          INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
+          printf "Installing version %s by default\n" "$INSTALLING_VER"
+
         else 
           echo "Available versions found:"
           echo Warning: Only rc or beta version are available.
-          printf -- '%s\n' "${matched_version_rc[@]}"
-          echo Installing version "${matched_version_rc}" by default
-          INSTALLING_VER=${matched_version_rc} 
+          printf -- '%s\n' "$matched_version_rc"
+          INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
+          printf "Installing version %s by default\n" "$INSTALLING_VER"
         fi
       fi
     else 
@@ -247,7 +263,7 @@ jvc_query_version_json() {
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
         printf -- '%s\n' "${matched_version_stable[@]}"
-        echo Installing the latest version "$matched_version_stable" of version "$1" by default. 
+        echo Installing the latest version "${matched_version_stable}" of version "$1" by default. 
         INSTALLING_VER=${matched_version_stable[0]}  
       elif [ -n "$matched_version_rc" ]; then
         echo Available versions found: 
@@ -275,7 +291,7 @@ jvc_get_version() {
   then
     jvc_query_version_json "$2" 
   else 
-    echo "Unsupported number of arguments: ${args[@]}"
+    echo "Unsupported number of arguments:" "${args[@]}"
   fi
 }
 
@@ -316,8 +332,9 @@ get_url_from_platform_arch_version() {
 
 jvc_get_sys_info() {
   eval "$1=$(uname -m)"
-  eval "$2=$(echo $(uname -s) | tr '[:upper:]' '[:lower:]')"
+  eval "$2=$(uname -s | tr '[:upper:]' '[:lower:]')"
 }
+
 
 jvc_checkfolder() { #$1 action #2 Dir
   local action
@@ -327,7 +344,7 @@ jvc_checkfolder() { #$1 action #2 Dir
   echo "Trying to $action to $dir"
   if [ ! -d "$dir" ]; then 
     echo "> Default $action folder  \"$dir\" is not a valid path."
-    printf "> Do you want to create the folder \"$dir\" ? (y/n) "
+    printf "> Do you want to create the folder \"%s\" ? (y/n) " "$dir"
     read -r  reply 
     if [[ ! $reply =~ ^[Yy] ]]; then 
       echo Aborted 
@@ -342,7 +359,7 @@ jvc_checkfolder() { #$1 action #2 Dir
 jvc_confirm() { 
   local version
   version=$1
-  printf "Continue to download Julia $version? (y/n) "
+  printf "Continue to download Julia %s ? (y/n) " "$version"
   read -r choice
   case "$choice" in 
     y|Y|yes ) true ;;
@@ -355,7 +372,7 @@ jvc_confirm() {
 }
 
 jvc_confirm2() { 
-  printf "$@"
+  printf "%s" "$@"
   read -r  choice
   case "$choice" in 
     y|Y|yes ) return ;;
@@ -394,9 +411,11 @@ jvc_get_remote_checksum() {
   local checksum_url
   checksum_url=$(jvc_get_upstream_checksum_url "$UPSTREAM_NAME")
   local remote_checksum
-  remote_checksum=($(curl -s "${checksum_url}julia-$version.sha256" | grep "$julia_remote_tarball"))
-  echo "$remote_checksum"
+  remote_checksum=$(curl -s "${checksum_url}julia-$version.sha256" | grep "$julia_remote_tarball")
+  echo "$remote_checksum" | cut -d " " -f1
 }
+
+# jvc_get_remote_checksum 1.5.3
 
 
 jvc_compare_checksum() {
@@ -512,7 +531,7 @@ jvc_load() {
 jvc_unload() {
   local version
   version=$1
-  if $(has_symlink_version "$version") ; then 
+  if has_symlink_version "$version" ; then 
     rm "$JULIA_SYMLINK_DIR"/julia-"$version"
     echo Symlink julia-"$version" has been removed from "$JULIA_SYMLINK_DIR"
   else
@@ -522,15 +541,23 @@ jvc_unload() {
 }
 
 jvc_installed_version() {
-  echo "$(ls "$JULIA_INSTALL_DIR")" | cut -d "-" -f2- 
+  # ls "$JULIA_INSTALL_DIR" | cut -d "-" -f2- 
+  command find "$JULIA_INSTALL_DIR" -maxdepth 1 -type d -name "julia-*"  \
+   | cut -d "-" -f2- | sort -r 
 }
 
 jvc_loaded_version() {
-  ls "$JULIA_SYMLINK_DIR" | grep julia- | cut -d "-" -f2- 
+  # ls "$JULIA_SYMLINK_DIR" | grep julia- | cut -d "-" -f2- 
+  # ls "$JULIA_SYMLINK_DIR"/julia-* | cut -d "-" -f2- 
+  command find "$JULIA_SYMLINK_DIR" -maxdepth 1 -name "julia-*"  \
+   | cut -d "-" -f2- | sort -r 
 }
 
+
+
 jvc_download_version() {
-  ls "$JULIA_DOWNLOAD_DIR" |  grep -o "julia-.*.tar.gz"  
+  cd "$JULIA_DOWNLOAD_DIR" || return 1
+  ls julia-*.tar.gz   
 }
 
 jvc_purge() {
@@ -559,9 +586,19 @@ jvc_switch() {
   version=$1
   local installed_version
   installed_version=$(jvc_installed_version)
-  if [[ ! "${installed_version[@]}" =~  "$version" ]]; then
-    echo julia version "$version" seems not be installed.
-    echo Please check your input or the installation directory "$JULIA_INSTALL_DIR"   
+  available_version=$(jvc_ls_all)
+  # if [[ ! "${installed_version[@]}" =~  "$version" ]]; then
+  if ! printf '%s\n' "$available_version" | grep -q "$version"; then 
+    echo Input version "$version" is not a valid version.
+    echo "(Please check all available version using \"jvc avail all\".)"
+    exit 1 
+  fi
+
+
+  if ! printf '%s\n' "$installed_version" | grep -q "$version"; then 
+    echo input version "$version" seems not be installed.
+    echo Installed versions are:
+    jvc_installed_version
     exit 1
   fi
 
@@ -584,7 +621,8 @@ jvc_switch() {
 }
 
 jvc_migrate() { 
-  local objective=$@
+  local objective
+  objective="$@"
   if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
     echo testing
     # check if dir exist 
@@ -602,7 +640,7 @@ jvc_migrate() {
 jvc() {
   n_args=${#args[@]}
 
-  case $args in 
+  case ${args} in 
     "-h"| "help" | "--help")
       echo "To be completed."
       echo "jvc install" 
@@ -626,10 +664,7 @@ jvc() {
       version=$INSTALLING_VER
       local url
       url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
-      jvc_confirm "$version"
-      local is_confirmed
-      is_confirmed=$? 
-      if $(exit $is_confirmed); then
+      if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         download_tarball "$url" "$version"
       else 
@@ -690,14 +725,10 @@ echo Installation done.
   version=$INSTALLING_VER
   local url
   url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
-  jvc_confirm "$version"
-  local is_confirmed 
-  is_confirmed=$? 
-  if $(exit $is_confirmed); then
+  if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
     download_tarball "$url" "$version"
   else 
-    echo "Abort."
     exit 1
   fi
   ;;
@@ -735,7 +766,6 @@ echo Installation done.
       jvc_ls_stable  
       ;;
     "all")
-      echo nightly
       jvc_ls_all
       ;;
   esac
@@ -752,10 +782,9 @@ echo Installation done.
   ;;
 "nightly") 
   jvc_get_sys_info arch platform
-  local url=$(jvc_get_nightly_url "$platform" $arch)
-  jvc_confirm nightly 
-  local is_confirmed=$? 
-  if $(exit $is_confirmed); then
+  local url
+  url=$(jvc_get_nightly_url "$platform" $arch)
+  if jvc_confirm2 "Continute to download Julia nightly ? [y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
     download_tarball "$url" nightly
   else 
