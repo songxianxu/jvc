@@ -7,8 +7,24 @@ args=("$@")
 # Basic std
 
 jvc_echo() {
-  command printf %f\\n "$*" 2>/dev/null
+  command printf %s\\n "$*" 2>/dev/null
 }
+
+jvc_err() {
+  bold=$(command tput bold)
+  command printf "\e[31m${bold}Error: %s\e[m\\n" "$*" 2>/dev/null
+}
+
+jvc_warn() {
+  bold=$(command tput bold)
+  command printf "\e[33m${bold}Warning: %s\e[m\\n" "$*" 2>/dev/null
+}
+
+jvc_done() {
+  bold=$(command tput bold)
+  command printf "\e[32m${bold}%s\e[m\\n" "$*" 2>/dev/null
+}
+
 
 
 jvc_has_julia_installed() {
@@ -168,12 +184,13 @@ jvc_search() {
           printf -- '%s\n' "${matched_version_rc[@]}"
         else 
           echo "Available versions found:"
-          echo Warning: Only rc or beta version are available.
+          jvc_warn "Only rc or beta version are available"
           printf -- '%s\n' "${matched_version_rc[@]}"
         fi
       fi
     else 
-      echo "Error: Unknown version is given: $1"
+      # echo "Error: Unknown version is given: $1"
+      jvc_err "Unknown version is given: $1"
       exit
     fi
   else 
@@ -183,11 +200,13 @@ jvc_search() {
         printf -- '%s\n' "${matched_version_stable[@]}"
       elif [ -n "$matched_version_rc" ]; then
         echo "Available versions found:" 
-        echo Warning: Only rc or beta version are found.
+        # echo Warning: Only rc or beta version are found.
+        jvc_warn "Only rc or beta version are available"
         printf -- '%s\n' "${matched_version_rc[@]}"
       fi
     else 
-      echo "Error: version given not found: $1"
+      # echo "Error: version given not found: $1"
+      jvc_err "Unknown version is given: $1"
       exit
     fi
   fi
@@ -248,14 +267,16 @@ jvc_query_version_json() {
 
         else 
           echo "Available versions found:"
-          echo Warning: Only rc or beta version are available.
+          # echo Warning: Only rc or beta version are available.
+          jvc_warn "Only rc or beta version are available."
           printf -- '%s\n' "$matched_version_rc"
           INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
           printf "Installing version %s by default\n" "$INSTALLING_VER"
         fi
       fi
     else 
-      echo "Error: Unknown version is given: $1"
+      # echo "Error: Unknown version is given: $1"
+      jvc_err "Unknown version is given: $1"
       exit
     fi
   else 
@@ -314,27 +335,61 @@ check_version_file() {
 
 get_url_from_platform_arch_version() {
   local sys
-  sys=$1
   local full_arch
-  full_arch=$2
+  local arch
   local version
+  sys=$1
+  full_arch=$2
   version=$3
   [[ $full_arch == *"64" ]] && arch=x64 || arch=x32
-  [[ $full_arch == "mac"* ]] && suffix=mac64.dmg || suffix=$sys-$full_arch.tar.gz
   local minor_version
   minor_version=$(echo "$version" | cut -d. -f1-2 | cut -d- -f1)
   local url
   url=$(jvc_get_upstream_url "$UPSTREAM_NAME")
   local filename
-  filename=julia-$version-$suffix
+  filename=$(jvc_generate_filename $sys $full_arch $version)
   eval "echo $url"
 }
 
 jvc_get_sys_info() {
   eval "$1=$(uname -m)"
   eval "$2=$(uname -s | tr '[:upper:]' '[:lower:]')"
+  # Linux x86
+  # uname -m x86_64 x64_32
+  # uname -S Linux
+  # Linux ARM
+  # uname -m aarch64
+  # uname -S Linux
+  # MacOS
+  # uname -m x86_64 
+  # uname -S Darwin 
+  # FreeBSD
+  # uname -m x86_64 
+  # uname -S FreeBSD 
+
 }
 
+jvc_generate_filename() {
+  local sys
+  local full_arch
+  local version
+  sys=$1
+  full_arch=$2
+  version=$3
+  local filename
+  case $sys in
+    "linux")
+      filename="julia-$version-$sys-$full_arch.tar.gz"
+      ;;
+    "darwin")
+      filename="julia-$version-mac64.dmg"
+      ;;
+    "freebsd")
+      filename="julia-$version-$sys-$full_arch.tar.gz"
+      ;;
+  esac 
+  echo "$filename"
+}
 
 jvc_checkfolder() { #$1 action #2 Dir
   local action
@@ -424,10 +479,10 @@ jvc_compare_checksum() {
   local julia_tarball
   julia_tarball="$JULIA_DOWNLOAD_DIR/julia-${1-}.tar.gz"
   if [ -z "$julia_tarball" ]; then 
-    echo "Error: Provided file to checksum is empty." 
+    jvc_err "Error: Provided file to checksum is empty." 
     return 1
   elif ! [ -f "$julia_tarball" ]; then 
-    echo "Error: Provided file to checksum does not exist."
+    jvc_err "Error: Provided file to checksum does not exist."
     return 1
   fi
 
@@ -436,7 +491,7 @@ jvc_compare_checksum() {
   local checksum
   checksum="$(jvc_get_remote_checksum "$version")"
   if [ -z "${checksum}" ]; then 
-    echo "Error: Provided checksum to compare is empty"
+    jvc_err "Error: Provided checksum to compare is empty"
     return 
   fi
   if [ -z "${computed_sum}" ]; then 
@@ -447,15 +502,15 @@ jvc_compare_checksum() {
     echo "Error: checksums do not match: '${computed_sum}' found, '${checksum}' is expected"
     return 1
   fi
-  echo "Checksum matches with remote for version $version"
+  jvc_done "Checksum matches with remote for version $version"
   return 
 }
 
 
-download_tarball() {
+jvc_download_tarball() {
   local url
-  url=$1
   local version
+  url=$1
   version=$2
   echo " Downloading from $url"
   cd "$JULIA_DOWNLOAD_DIR"
@@ -482,7 +537,7 @@ download_tarball() {
       case "$choice" in 
         y|Y|yes ) 
           rm -i "$JULIA_DOWNLOAD_DIR"/julia-"$version".tar.gz
-          download_tarball "$url" "$version"
+          jvc_download_tarball "$url" "$version"
           ;;
         n|N|no ) echo "Aborted."  
           return 1
@@ -666,7 +721,7 @@ jvc() {
       url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
       if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-        download_tarball "$url" "$version"
+        jvc_download_tarball "$url" "$version"
       else 
         exit 1
       fi
@@ -679,7 +734,7 @@ jvc() {
           y|Y|yes ) 
             echo "tar xzf $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz -C  $JULIA_INSTALL_DIR/julia-$version --totals"
             tar xzf "$JULIA_DOWNLOAD_DIR"/julia-"$version".tar.gz -C  "$JULIA_INSTALL_DIR"/ --totals
-            echo Extracting done.
+            jvc_done Extracting done.
             ;;
           n|N|no ) echo "Aborted."  
             exit 1
@@ -696,9 +751,9 @@ jvc() {
 
 # Create links
 echo Creating symbolic link julia-"$version" in "$JULIA_SYMLINK_DIR"
-jvc_checkfolder create-symlink "$JULIA_SYMLINK_DIR"
+jvc_checkfolder create symlink "$JULIA_SYMLINK_DIR"
 ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
-echo Installation done.
+jvc_done Installation done.
 ;;
 "remove"|"rm")
   echo You have installed the following version:
@@ -727,7 +782,7 @@ echo Installation done.
   url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
   if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-    download_tarball "$url" "$version"
+    jvc_download_tarball "$url" "$version"
   else 
     exit 1
   fi
@@ -786,7 +841,7 @@ echo Installation done.
   url=$(jvc_get_nightly_url "$platform" $arch)
   if jvc_confirm2 "Continute to download Julia nightly ? [y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-    download_tarball "$url" nightly
+    jvc_download_tarball "$url" nightly
   else 
     exit 1
   fi
@@ -848,7 +903,7 @@ echo Installation done.
   jvc_purge
   ;;
 "version" | "-v" | "--version")
-  echo "Julia version management (JVM) version 0.1.0"
+  echo "Julia version control (JVC) version 0.1.0"
   ;;
 *) 
   echo Unsupported arguements. Check your input.
