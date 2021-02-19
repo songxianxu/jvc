@@ -40,7 +40,7 @@ jvc_pre_installed_version() {
 
 # https://unix.stackexchange.com/questions/614299/how-to-split-a-string-by-character-in-bash-zsh
 jvc_split() { 
-  local - IFS="$2"
+  local IFS="$2"
   set -o noglob
   eval "$3"'=( $1"")'
 }
@@ -251,20 +251,27 @@ jvc_query_version_json() {
 
   ask_for_rc=$(echo "$version_raw" | grep -cE "rc|beta|alpha" )
 
+  # Given exact version number e.g. 1.1.1 
   if [ $has_exact_version == 1 ]; then
+    # If there is matched exact version
     if [ -n "$matched_version" ]; then
+      # If there is macthed stable version
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
         printf -- '%s\n' "$matched_version_stable"
         echo Installing version "$1" ... 
         INSTALLING_VER=$1
+      # If there is macthed rc version
       elif [ -n "$matched_version_rc" ]; then
+        # If specifically asked for rc
         if [ "$ask_for_rc" == 1 ] ; then
           echo "Available versions found:"
           printf -- '%s\n' "$matched_version_rc"
+        echo Installing version "$1" ... 
           INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
           printf "Installing version %s by default\n" "$INSTALLING_VER"
 
+        # If ones does not ask for rc but there is no stable version and only rc
         else 
           echo "Available versions found:"
           # echo Warning: Only rc or beta version are available.
@@ -284,15 +291,14 @@ jvc_query_version_json() {
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
         printf -- '%s\n' "${matched_version_stable[@]}"
-        echo Installing the latest version "${matched_version_stable}" of version "$1" by default. 
-        INSTALLING_VER=${matched_version_stable[0]}  
+        INSTALLING_VER=$(printf "%s\n" "$matched_version_stable" | head -n1 | xargs)
+        printf "Installing version %s by default\n" "$INSTALLING_VER"
       elif [ -n "$matched_version_rc" ]; then
         echo Available versions found: 
         echo Warning: Only rc or beta version are available.
         printf -- '%s\n' "${matched_version_rc[@]}"
-        echo Installing the latest "$1" version "${matched_version_stable[0]}" by default
-        # INSTALLING_VER=${matched_version_stable[0]}  
-        INSTALLING_VER=${matched_version_rc[0]}  
+        INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
+        printf "Installing version %s by default\n" "$INSTALLING_VER"
       fi
     else 
       echo "Error: Unknown version is given: $1"
@@ -675,21 +681,21 @@ jvc_switch() {
   fi
 }
 
-jvc_migrate() { 
-  local objective
-  objective="$@"
-  if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
-    echo testing
-    # check if dir exist 
-    # if not create one ?
-    # overwrite behavior ? 
-    # What is the preference?
-  else 
-    echo Check your input format, it should be e.g., jvc migrate 1.5 to 1.6
-    echo Note that only major and minor version are supported.
-    exit 1 
-  fi
-}
+# jvc_migrate() { 
+#   local objective
+#   objective="$@"
+#   if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
+#     echo testing
+#     # check if dir exist 
+#     # if not create one ?
+#     # overwrite behavior ? 
+#     # What is the preference?
+#   else 
+#     echo Check your input format, it should be e.g., jvc migrate 1.5 to 1.6
+#     echo Note that only major and minor version are supported.
+#     exit 1 
+#   fi
+# }
 
 
 jvc() {
@@ -870,7 +876,7 @@ jvc_done Installation done.
 
 # Create links
 echo Creating symbolic link julia-nightly in "$JULIA_SYMLINK_DIR"
-jvc_checkfolder create-symlink "$JULIA_SYMLINK_DIR"
+jvc_checkfolder create symlink "$JULIA_SYMLINK_DIR"
 ln -sf "$JULIA_INSTALL_DIR"/julia-nightly/bin/julia "$JULIA_SYMLINK_DIR"/julia-nightly
 echo Installation done.
 ;;
