@@ -26,6 +26,9 @@ jvc_done() {
 }
 
 
+jvc_has() {
+  type "${1-}" > /dev/null 2>&1
+}
 
 jvc_has_julia_installed() {
   [ "$(command -v julia)" != '' ]
@@ -457,7 +460,15 @@ jvc_compute_checksum() {
     echo "Provided file to checksum does not exist."
   fi
   # Use sha256sum only
-  sha256sum "$julia_tarball" | awk '{print $1}'
+  if jvc_has "sha256sum"; then
+    sha256sum "$julia_tarball" | awk '{print $1}'
+  elif jvc_has "shasum"; then
+    shasum -a 256 "$julia_tarball" | awk '{print $1}'
+  elif jvc_has "sha256"; then 
+    sha256 -q 256 "$julia_tarball" | awk '{print $1}'
+  elif jvc_has "gsha256sum"; then
+    gsha256sum "$julia_tarball" | awk '{print $1}'
+  fi
 }
 
 jvc_get_remote_checksum() {
@@ -512,8 +523,7 @@ jvc_compare_checksum() {
   return 
 }
 
-
-jvc_download_tarball() {
+jvc_download_tarball_curl() {
   local url
   local version
   url=$1
@@ -522,7 +532,7 @@ jvc_download_tarball() {
   cd "$JULIA_DOWNLOAD_DIR"
   if  [ ! -f julia-"$version".tar.gz ]; then
     echo -n "    "
-    if $WGET_JULIA -c "$url" -O julia-"$version".tar.gz; then
+    if curl --progress-bar --compressed "$url" --output julia-"$version".tar.gz; then
       echo " Downloading finished."
       jvc_compare_checksum "$version"
     else 
@@ -543,7 +553,50 @@ jvc_download_tarball() {
       case "$choice" in 
         y|Y|yes ) 
           rm -i "$JULIA_DOWNLOAD_DIR"/julia-"$version".tar.gz
-          jvc_download_tarball "$url" "$version"
+          jvc_download_tarball_curl "$url" "$version"
+          ;;
+        n|N|no ) echo "Aborted."  
+          return 1
+          ;;
+        *) echo "Please input a valid command "
+      esac
+    fi
+  fi
+}
+
+
+
+jvc_download_tarball_wget() {
+  local url
+  local version
+  url=$1
+  version=$2
+  echo " Downloading from $url"
+  cd "$JULIA_DOWNLOAD_DIR"
+  if  [ ! -f julia-"$version".tar.gz ]; then
+    echo -n "    "
+    if wget -q --show-progress -c "$url" -O julia-"$version".tar.gz; then
+      echo " Downloading finished."
+      jvc_compare_checksum "$version"
+    else 
+      echo " Download fails. Please check your connection."
+      rm julia-"$version".tar.gz
+    fi
+  else
+    echo " Julia $version is already downloaded as $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"
+    jvc_compare_checksum "$version"
+    local checksum_status
+    checksum_status=$?
+    if $(exit $checksum_status); then 
+      return 
+    else   
+      local choice 
+      printf "Do you want to remove it and redownload? [y/n] " 
+      read -r choice
+      case "$choice" in 
+        y|Y|yes ) 
+          rm -i "$JULIA_DOWNLOAD_DIR"/julia-"$version".tar.gz
+          jvc_download_tarball_wget "$url" "$version"
           ;;
         n|N|no ) echo "Aborted."  
           return 1
@@ -681,11 +734,12 @@ jvc_switch() {
   fi
 }
 
-# jvc_migrate() { 
-#   local objective
-#   objective="$@"
-#   if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
-#     echo testing
+jvc_migrate() { 
+  local objective
+  objective="$#"
+  echo $objective
+  if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
+    echo testing
 #     # check if dir exist 
 #     # if not create one ?
 #     # overwrite behavior ? 
@@ -694,8 +748,8 @@ jvc_switch() {
 #     echo Check your input format, it should be e.g., jvc migrate 1.5 to 1.6
 #     echo Note that only major and minor version are supported.
 #     exit 1 
-#   fi
-# }
+  fi
+}
 
 
 jvc() {
@@ -727,7 +781,11 @@ jvc() {
       url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
       if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-        jvc_download_tarball "$url" "$version"
+        if jvc_has "wget"; then
+            jvc_download_tarball_wget "$url" "$version"
+          elif jvc_has "curl"; then
+            jvc_download_tarball_curl "$url" "$version"
+        fi
       else 
         exit 1
       fi
@@ -788,7 +846,11 @@ jvc_done Installation done.
   url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
   if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-    jvc_download_tarball "$url" "$version"
+    if jvc_has "wget"; then
+        jvc_download_tarball_wget "$url" "$version"
+      elif jvc_has "curl"; then
+        jvc_download_tarball_curl "$url" "$version"
+    fi
   else 
     exit 1
   fi
@@ -907,6 +969,9 @@ echo Installation done.
   ;;
 "purge")
   jvc_purge
+  ;;
+"migrate")
+  jvc_migrate "${args[@]}"
   ;;
 "version" | "-v" | "--version")
   echo "Julia version control (JVC) version 0.1.0"
