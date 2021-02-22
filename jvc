@@ -736,7 +736,7 @@ jvc_switch() {
 
 jvc_migrate() { 
   local objective
-  objective="$#"
+  objective="$@"
   echo $objective
   if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
     echo testing
@@ -971,7 +971,8 @@ echo Installation done.
   jvc_purge
   ;;
 "migrate")
-  jvc_migrate "${args[@]}"
+  # Matching from here
+  jvc_migrate ${args[1]} ${args[2]} ${args[3]}
   ;;
 "version" | "-v" | "--version")
   echo "Julia version control (JVC) version 0.1.0"
