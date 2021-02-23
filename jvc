@@ -851,7 +851,7 @@ jvc() {
 
 # Create links
 echo Creating symbolic link julia-"$version" in "$JULIA_SYMLINK_DIR"
-jvc_checkfolder "create symlink" "$JULIA_SYMLINK_DIR"
+jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
 ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
 jvc_done Installation done.
 ;;
@@ -974,7 +974,7 @@ jvc_done Installation done.
 
 # Create links
 echo Creating symbolic link julia-nightly in "$JULIA_SYMLINK_DIR"
-jvc_checkfolder "create symlink" "$JULIA_SYMLINK_DIR"
+jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
 ln -sf "$JULIA_INSTALL_DIR"/julia-nightly/bin/julia "$JULIA_SYMLINK_DIR"/julia-nightly
 echo Installation done.
 ;;
