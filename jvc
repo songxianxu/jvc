@@ -569,7 +569,7 @@ jvc_download_tarball_curl() {
   echo " Downloading from $url"
   if  [ ! -f "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz" ]; then
     echo -n "    "
-    if curl --progress-bar --compressed "$url" --output julia-"$version".tar.gz; then
+    if curl --progress-bar --compressed "$url" --output "$JULIA_DOWNLOAD_DIR/julia-$version".tar.gz; then
       echo " Downloading finished."
       jvc_compare_checksum "$version"
     else 
@@ -611,7 +611,7 @@ jvc_download_tarball_wget() {
   echo " Downloading from $url"
   if  [ ! -f "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz" ]; then
     echo -n "    "
-    if wget -q --show-progress -c "$url" -O julia-"$version".tar.gz; then
+    if wget -q --show-progress -c "$url" -O "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"; then
       echo " Downloading finished."
       jvc_compare_checksum "$version"
     else 
@@ -818,7 +818,7 @@ jvc() {
       if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         if jvc_has "wget"; then
-            jvc_download_tarball_wget "$url" "$version"
+            jvc_download_tarball_curl "$url" "$version"
           elif jvc_has "curl"; then
             jvc_download_tarball_curl "$url" "$version"
         fi
