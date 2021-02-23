@@ -3,6 +3,7 @@
 **This is a project still in experimental stage. Many syntax and notations are not standardized yet. Use with care.**
 **There are many things to be fixed as I am not good in writing shell script. Comments are welcome.**
 
+
 Objectives: Inspired from `jill.sh`, `jill.py`, and `nvm-sh`. A possible realization to manage Julia versions.
 
 Why? Julia is a fast evolving language. It might be good to provide a way for developers to test their codes locally for various versions. Or perhaps users are eagear to try new versions, e.g., rc or beta. 
