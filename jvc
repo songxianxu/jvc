@@ -300,24 +300,24 @@ jvc_query_version_json() {
         printf -- '%s\n' "$matched_version_stable"
         echo Installing version "$1" ... 
         INSTALLING_VER=$1
-      # If there is macthed rc version
+        # If there is macthed rc version
       elif [ -n "$matched_version_rc" ]; then
         # If specifically asked for rc
         if [ "$ask_for_rc" == 1 ] ; then
           echo "Available versions found:"
           printf -- '%s\n' "$matched_version_rc"
-        echo Installing version "$1" ... 
+          echo Installing version "$1" ... 
           INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
           printf "Installing version %s by default\n" "$INSTALLING_VER"
 
         # If ones does not ask for rc but there is no stable version and only rc
-        else 
-          echo "Available versions found:"
-          # echo Warning: Only rc or beta version are available.
-          jvc_warn "Only rc or beta version are available."
-          printf -- '%s\n' "$matched_version_rc"
-          INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
-          printf "Installing version %s by default\n" "$INSTALLING_VER"
+      else 
+        echo "Available versions found:"
+        # echo Warning: Only rc or beta version are available.
+        jvc_warn "Only rc or beta version are available."
+        printf -- '%s\n' "$matched_version_rc"
+        INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
+        printf "Installing version %s by default\n" "$INSTALLING_VER"
         fi
       fi
     else 
@@ -693,15 +693,15 @@ jvc_unload() {
 jvc_installed_version() {
   # ls "$JULIA_INSTALL_DIR" | cut -d "-" -f2- 
   command find "$JULIA_INSTALL_DIR" -maxdepth 1 -type d -name "julia-*"  \
-   | cut -d "-" -f2- | sort -r 
-}
+    | cut -d "-" -f2- | sort -r 
+  }
 
 jvc_loaded_version() {
   # ls "$JULIA_SYMLINK_DIR" | grep julia- | cut -d "-" -f2- 
   # ls "$JULIA_SYMLINK_DIR"/julia-* | cut -d "-" -f2- 
   command find "$JULIA_SYMLINK_DIR" -maxdepth 1 -name "julia-*"  \
-   | cut -d "-" -f2- | sort -r 
-}
+    | cut -d "-" -f2- | sort -r 
+  }
 
 
 
@@ -773,18 +773,42 @@ jvc_switch() {
 jvc_migrate() { 
   local objective
   objective="$@"
-  echo $objective
-  if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
-    echo testing
-#     # check if dir exist 
-#     # if not create one ?
-#     # overwrite behavior ? 
-#     # What is the preference?
-#   else 
-#     echo Check your input format, it should be e.g., jvc migrate 1.5 to 1.6
-#     echo Note that only major and minor version are supported.
-#     exit 1 
+  local from_version
+  local to version
+  from_version=$1
+  to_version=$3
+  local depot_path
+  if [ -z $JULIA_DEPOT_PATH ]; then
+    echo "JULIA_DEPOT_PATH not found, using ~/.julia by default" 
+    depot_path="$HOME/.julia"
+  else 
+    depot_path=$JULIA_DEPOT_PATH # This is problemmatic
   fi
+  if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
+    echo Matching 
+  else 
+    echo Wrong argue
+    exit 1
+  fi
+  # -y for GNU Diff 
+  # -c for POSIX Diff 
+  diff -y --color "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"
+  echo "v$from_version Project.toml ===========>  ===========>  ===========> ===========>  v$to_version Project.toml"
+  if jvc_confirm2 "Continute to migrate Project.toml from v$from_version to v$to_version ? [Y/n] ";  then
+    cp "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"
+    cp "$depot_path/environments/v$from_version/Manifest.toml" "$depot_path/environments/v$to_version/Manifest.toml"
+    echo Migration complete. 
+  else 
+    exit 1
+  fi
+  #     # check if dir exist 
+  #     # if not create one ?
+  #     # overwrite behavior ? 
+  #     # What is the preference?
+  #   else 
+  #     echo Check your input format, it should be e.g., jvc migrate 1.5 to 1.6
+  #     echo Note that only major and minor version are supported.
+  #     exit 1 
 }
 
 
@@ -818,9 +842,9 @@ jvc() {
       if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         if jvc_has "wget"; then
-            jvc_download_tarball_curl "$url" "$version"
-          elif jvc_has "curl"; then
-            jvc_download_tarball_curl "$url" "$version"
+          jvc_download_tarball_curl "$url" "$version"
+        elif jvc_has "curl"; then
+          jvc_download_tarball_curl "$url" "$version"
         fi
       else 
         exit 1
@@ -883,9 +907,9 @@ jvc_done Installation done.
   if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
     if jvc_has "wget"; then
-        jvc_download_tarball_wget "$url" "$version"
-      elif jvc_has "curl"; then
-        jvc_download_tarball_curl "$url" "$version"
+      jvc_download_tarball_wget "$url" "$version"
+    elif jvc_has "curl"; then
+      jvc_download_tarball_curl "$url" "$version"
     fi
   else 
     exit 1
