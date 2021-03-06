@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/.jvcrc"
 JVC_DIR="$(dirname "$0")"
-
+JVC_VERSION="0.1.0"
 
 # Global arguments
 args=("$@")
@@ -26,7 +26,6 @@ jvc_done() {
   bold=$(command tput bold)
   command printf "\e[32m${bold}%s\e[m\\n" "$*" 2>/dev/null
 }
-
 
 jvc_has() {
   type "${1-}" > /dev/null 2>&1
@@ -66,7 +65,6 @@ jvc_split2() {
 jvc_get_latest_version() {
   basename "$(curl -fs -o/dev/null -w '%{redirect_url}' "$1"/releases/latest)" | cut -c2-
 }
-
 
 jvc_get_nightly_url() {
   local sys=$1
@@ -321,7 +319,6 @@ jvc_query_version_json() {
         fi
       fi
     else 
-      # echo "Error: Unknown version is given: $1"
       jvc_err "Unknown version is given: $1"
       exit
     fi
@@ -334,13 +331,13 @@ jvc_query_version_json() {
         printf "Installing version %s by default\n" "$INSTALLING_VER"
       elif [ -n "$matched_version_rc" ]; then
         echo Available versions found: 
-        echo Warning: Only rc or beta version are available.
+        jvc_warn "Only rc or beta version are available."
         printf -- '%s\n' "${matched_version_rc[@]}"
         INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
         printf "Installing version %s by default\n" "$INSTALLING_VER"
       fi
     else 
-      echo "Error: Unknown version is given: $1"
+      jvc_err "Unknown version is given: $1"
       exit
     fi
   fi
@@ -362,9 +359,8 @@ jvc_get_version() {
 }
 
 
-
-# Get the download url from json file
-# Try to avoid using jq 
+# Get the download url from json file (deprecated)
+# Try to avoid using jq as I do not want extra dependence 
 get_url(){
   jq  '."0.7.0-rc2".files[2].triplet' versions.json
 }
@@ -546,15 +542,15 @@ jvc_compare_checksum() {
   local checksum
   checksum="$(jvc_get_remote_checksum "$version")"
   if [ -z "${checksum}" ]; then 
-    jvc_err "Error: Provided checksum to compare is empty"
+    jvc_err "Provided checksum to compare is empty"
     return 
   fi
   if [ -z "${computed_sum}" ]; then 
     echo "Computed checksum of '$julia_tarball' is empty."
-    echo "Warning: continues without checksum verification. "
+    jvc_warn "Continues without checksum verification. "
     return 
   elif [ "${computed_sum}" != "${checksum}" ]; then 
-    echo "Error: checksums do not match: '${computed_sum}' found, '${checksum}' is expected"
+    jvc_err "checksums do not match: '${computed_sum}' found, '${checksum}' is expected"
     return 1
   fi
   jvc_done "Checksum matches with remote for version $version"
@@ -666,14 +662,14 @@ jvc_load() {
   local bin_julia
   bin_julia=$JULIA_INSTALL_DIR/julia-$version/bin/julia 
   if $(has_symlink_version "$version") ; then 
-    echo "julia-$version already exist in $JULIA_SYMLINK_DIR" 
+    jvc_warn "julia-$version already exist in $JULIA_SYMLINK_DIR" 
   else
     if [ -e "$bin_julia" ]; then
       echo "Loading julia-$version"
       ln -s "$bin_julia" "$JULIA_SYMLINK_DIR"/julia-"$version"
     else
-      echo Error: Directory "$bin_julia" does not exist.
-      echo Error: The corresponding version may not be installed.
+      jvc_err "Directory $bin_julia does not exist."
+      jvc_err "The corresponding version may not be installed."
     fi
   fi
 }
@@ -702,7 +698,6 @@ jvc_loaded_version() {
   command find "$JULIA_SYMLINK_DIR" -maxdepth 1 -name "julia-*"  \
     | cut -d "-" -f2- | sort -r 
   }
-
 
 
 jvc_download_version() {
@@ -785,9 +780,9 @@ jvc_migrate() {
     depot_path=$JULIA_DEPOT_PATH # This is problemmatic
   fi
   if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
-    echo Matching 
+    echo Matching statement. Proceed for Project.toml comparison.
   else 
-    echo Wrong argue
+    echo Wrong argument. Please check your inputs.
     exit 1
   fi
   # -y for GNU Diff 
@@ -817,20 +812,66 @@ jvc() {
 
   case ${args} in 
     "-h"| "help" | "--help")
-      echo "To be completed."
-      echo "jvc install" 
-      echo "jvc remove" 
-      echo "jvc load" 
-      echo "jvc unload" 
-      echo "jvc unloaded" 
-      echo "jvc status" 
-      echo "jvc avail" 
-      echo "jvc search" 
-      echo "jvc installed" 
-      echo "jvc switch" 
-      echo "jvc migrate" 
-      echo "jvc upstream" 
-      echo "jvc update" 
+      jvc_echo "        Julia Version Control (v${JVC_VERSION})" 
+
+      jvc_echo "Basic usage:"
+      jvc_echo 
+      jvc_echo "Julia installation"
+      jvc_echo "  jvc install [<version>]"
+      jvc_echo "  jvc install (Install the newest stable version)" 
+      jvc_echo "  jvc install 1 (Install the newest major version 1)" 
+      jvc_echo "  jvc install 1.5 (Install the newest major minor version 1.5)" 
+      jvc_echo "  jvc install 1.5.3 (Install the exact version 1.5.3)" 
+      jvc_echo "  jvc install 1.6.0 (Install the exact version 1.6.0)" 
+      jvc_echo "  jvc install 1.6.0-rc1 (Install the exact version 1.6.0-rc1)" 
+      jvc_echo "  jvc installed (List all installed)" 
+      jvc_echo 
+      jvc_echo "Julia download"
+      jvc_echo "  jvc download [<version>]"
+      jvc_echo
+      jvc_echo "Install the nightly version"
+      jvc_echo "  jvc nightly"
+      jvc_echo 
+      jvc_echo "Load a Julia version."
+      jvc_echo "  jvc load [<version>]"
+      jvc_echo "  This will make the corresponding version visible as julia-version."
+      jvc_echo 
+      jvc_echo "Unload a Julia version."
+      jvc_echo "  jvc unload [<version>]"
+      jvc_echo 
+      jvc_echo "Purge a Julia version"
+      jvc_echo "  jvc purge"
+      jvc_echo "  This might be useful when you have too many julia-version symlink loaded." 
+      jvc_echo 
+      jvc_echo "Uninstall a Julia version" 
+      jvc_echo "  jvc remove"
+      jvc_echo "  jvc rm"
+      jvc_echo "Note that the no version number is required. The installed version will be listed."
+      jvc_echo 
+      jvc_echo "Overview of installed, loaded, downloaded."
+      jvc_echo "  jvc status" 
+      jvc_echo "  jvc st" 
+      jvc_echo 
+      jvc_echo "Search for a specific version"
+      jvc_echo "  jvc search [<version>]"
+      jvc_echo 
+      jvc_echo "List available version that can be installed."
+      jvc_echo "  jvc avail" 
+      jvc_echo "  jvc available" 
+      jvc_echo "  jvc avail all (List all versions include rc and beta)"
+      jvc_echo 
+      jvc_echo "Search for a corresponding version." 
+      jvc_echo "  jvc search [<version>]" 
+      jvc_echo 
+      jvc_echo "Pin to a specific version as julia"
+      jvc_echo "  jvc switch [<version>]" 
+      jvc_echo "  e.g., if you switch to 1.4.2, it will overwrite you julia symbolic link"
+      jvc_echo
+      jvc_echo "Migrate your Project.toml/Manifest.toml"
+      jvc_echo "  jvc migrate [<major minor version>] to [<major minor version>]" 
+      jvc_echo 
+      jvc_echo "Change the upstream for downloading"
+      jvc_echo "  jvc upstream" 
       ;;
     "install")
       jvc_get_sys_info arch platform
@@ -842,7 +883,7 @@ jvc() {
       if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         if jvc_has "wget"; then
-          jvc_download_tarball_curl "$url" "$version"
+          jvc_download_tarball_wget "$url" "$version"
         elif jvc_has "curl"; then
           jvc_download_tarball_curl "$url" "$version"
         fi
@@ -894,8 +935,8 @@ jvc_done Installation done.
   if jvc_confirm2 "Warning: you are about remove $rm_version from $JULIA_INSTALL_DIR. [y/n]" ;  then
     rm -rf "$rm_bin" 
     [ -L "$rm_symlink" ] && rm -rf "$rm_symlink"
+    jvc_done "Uninstallation done."
   fi
-
   ;;
 "download")
   jvc_get_sys_info arch platform
@@ -925,23 +966,17 @@ jvc_done Installation done.
   jvc_loaded_version
   ;;
 "status"|"st")
-  echo =========================
+  echo ==============================
   echo "Installed version" "$JULIA_INSTALL_DIR"
   jvc_installed_version
-  echo =========================
+  echo ==============================
   echo "Loaded version" "$JULIA_SYMLINK_DIR"
   jvc_loaded_version
-  echo =========================
+  echo ==============================
   echo "Downloaded version" "$JULIA_DOWNLOAD_DIR"
   jvc_download_version
-  echo =========================
-  echo List all Julia version installed 
-  echo List the installed Julia version 
-  echo Possible to track Project.toml? 
-  echo List installed Julia version 
-  echo List download Julia version 
-  echo List loaded Julia version
-  echo List shared Project.toml if possible
+  echo ==============================
+  echo "Current upstream is $UPSTREAM_NAME"
   ;;
 "available"|"avail")
   case ${args[1]} in
@@ -969,7 +1004,11 @@ jvc_done Installation done.
   url=$(jvc_get_nightly_url "$platform" $arch)
   if jvc_confirm2 "Continute to download Julia nightly ? [y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-    jvc_download_tarball "$url" nightly
+    if jvc_has "wget"; then
+      jvc_download_tarball_wget "$url" nightly 
+    elif jvc_has "curl"; then
+      jvc_download_tarball_curl "$url" nightly 
+    fi
   else 
     exit 1
   fi
@@ -1018,13 +1057,15 @@ echo Installation done.
   printf "Select your preferred upstream. (Enter number [1-%i]): "  "${#upstream_menu[@]}"
   read -r upstream_choice
 
-  if [ "$upstream_choice" -eq "$upstream_choice" ] && [ "$upstream_choice" -le ${#upstream_menu[@]} ] ; then 
+  # if [ "$upstream_choice" -eq "$upstream_choice" ] && [ "$upstream_choice" -le ${#upstream_menu[@]} ] ; then 
+
+  if [[ "$upstream_choice" == ?(-)+([0-9]) ]] && [ "$upstream_choice" -le ${#upstream_menu[@]} ]; then 
     local jvc_dir
     jvc_dir=$(dirname "$0")
     sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" "$jvc_dir"/.jvcrc
     echo Your upstream is switched to "${upstream_menu[$upstream_choice-1]}" 
   else
-    echo "Please enter valid input."
+    echo "Aborted."
   fi
   ;;
 "purge")
@@ -1035,7 +1076,8 @@ echo Installation done.
   jvc_migrate ${args[1]} ${args[2]} ${args[3]}
   ;;
 "version" | "-v" | "--version")
-  echo "Julia version control (JVC) version 0.1.0"
+  echo "Julia Version Control (JVC) version $JVC_VERSION"
+  echo "Author: Xiansong Xu (songxianxu@gmail.com)"
   ;;
 *) 
   echo Unsupported arguements. Check your input.
