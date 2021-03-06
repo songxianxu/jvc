@@ -29,9 +29,15 @@
 
 1. Clone this repo in your prefered place such as `~/.jvc`   
 2. Make it visible by appending `export PATH=$PATH:~/.jvc:~/.local/bin/jvc/` to your shell rc file such as `~/.bashrc`, `~/.zshrc`
-3. Make it executable, `chmod +x ~/.jvc/jvc`
 
-Note that `~/.local/bin/jvc/` is the default `$JULIA_SYMLINK_DIR` set in `~.jvcrc`. You can change as you like. 
+Note that `~/.local/bin/jvc/` is the default `$JULIA_SYMLINK_DIR` set in `~.jvcrc`. You can change as you like. Also you may or may not need to make it executable, `chmod +x ~/.jvc/jvc`
+
+
+Various environment variables in `.jvcrc` can be tuned to suit your preferences.
+
+- `JULIA_DOWNLOAD_DIR=$HOME/Downloads/Julia/` Download folder for julia installation tarball 
+- `JULIA_INSTALL_DIR=$HOME/apps/julia/` Installation folder for julia
+- `JULIA_SYMLINK_DIR=$HOME/.local/bin/jvc/` Symbolic link folder for julia
 
 `.jvcrc` records some environment variables, it may not be so necessary but I do not want to "help" modifying your shell rc files.
 
