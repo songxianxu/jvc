@@ -1,10 +1,16 @@
+# TODO:
+
+# Switch not stable yet 
+# Better version matching from list, e.g. exact version matching for switch 1.6.0, 1.6.0-rc1
+# Default yes for confirm
+# HTTP error code for download
+# Improve logic for nightly 
+
+
 #!/usr/bin/env bash
 source "$(dirname "$0")/.jvcrc"
 JVC_DIR="$(dirname "$0")"
-JVC_VERSION="0.1.0"
-
-# Global arguments
-args=("$@")
+JVC_VERSION="0.2.0"
 
 # Basic std
 
@@ -31,15 +37,39 @@ jvc_has() {
   type "${1-}" > /dev/null 2>&1
 }
 
+# Unable to track
 jvc_has_julia_installed() {
-  [ "$(command -v julia)" != '' ]
-}
-
-jvc_pre_installed_version() {
-  if jvc_has_julia_installed; then
-    echo Julia version "$(julia --version | awk '{print $3}') has been installed."
+  if [ -n "$(command -v julia)" ]; then
+    return 0
+  else 
+    return 1
   fi
 }
+
+
+# jvc_pre_installed_version() {
+#   if jvc_has_julia_installed; then
+#     echo Julia version "$(julia --version | awk '{print $3}') has been installed."
+#   fi
+# }
+
+jvc_check_empty() {
+  if [ -n "$1"  ]; then
+    return 0
+  else 
+    jvc_err "$2"
+    exit 1
+  fi
+}
+
+
+# http ://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-stringcho "$xyz"
+# TODO: Implement server check
+jvc_is_exact_version() {
+  jvc_echo "TODO"
+}
+
+
 
 
 # https://unix.stackexchange.com/questions/614299/how-to-split-a-string-by-character-in-bash-zsh
@@ -102,14 +132,14 @@ jvc_get_upstream_local() {
 
 
 
-jvc_get_upstream_checksum_url(){
+jvc_get_upstream_bin_url(){
   local upstream_name=$1
-  echo "$(jvc_get_upstream_url "$upstream_name" | awk -F'$' '{print $1}')checksums/"
+  echo "$(jvc_get_upstream_url "$upstream_name" | awk -F'$' '{print $1}')"
 }
 
-jvc_get_upstream_checksum_local(){
+jvc_get_upstream_bin_local(){
   local upstream_name=$1
-  echo "$(jvc_get_upstream_local "$upstream_name" | awk -F'$' '{print $1}')checksums/"
+  echo "$(jvc_get_upstream_local "$upstream_name" | awk -F'$' '{print $1}')"
 }
 
 jvc_get_upstream_list_local(){
@@ -151,7 +181,9 @@ jvc_get_version_from_json() {
 
 jvc_get_version_from_json_online() {
   local versions
-  versions=$(curl -s "https://julialang-s3.julialang.org/bin/versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}')
+  local upstream_url
+  upstream_url="$(jvc_get_upstream_bin_local $UPSTREAM_NAME)"
+  versions=$(curl -s "${upstream_url}versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}')
   for version in "${versions[@]}"; do 
     echo "$version"
   done
@@ -170,10 +202,19 @@ jvc_ls_all() {
 
 # Query the version file
 jvc_query_latest_stable() {
+  # echo "Querying lastest Julia version ..."
+  # INSTALLING_VER=$(jvc_get_latest_version https://github.com/JuliaLang/julia)
+  # echo "Latest stable version is $INSTALLING_VER"
+  # Above should be the preferrable way but probably give up due to some funny issues:)
   echo "Querying lastest Julia version ..."
-  INSTALLING_VER=$(jvc_get_latest_version https://github.com/JuliaLang/julia)
+  INSTALLING_VER=$(jvc available | head -n 1 | xargs)
+  if [ -z "$INSTALLING_VER" ]; then 
+    jvc_err "Fail to query the lastest version"
+    exit 1
+  fi
   echo "Latest stable version is $INSTALLING_VER"
-}
+  # Any better idea?
+}   
 
 
 jvc_search() {
@@ -296,7 +337,7 @@ jvc_query_version_json() {
       if [ -n "$matched_version_stable" ]; then
         echo "Available versions found:"
         printf -- '%s\n' "$matched_version_stable"
-        echo Installing version "$1" ... 
+        echo Selecting version "$1" ... 
         INSTALLING_VER=$1
         # If there is macthed rc version
       elif [ -n "$matched_version_rc" ]; then
@@ -304,9 +345,9 @@ jvc_query_version_json() {
         if [ "$ask_for_rc" == 1 ] ; then
           echo "Available versions found:"
           printf -- '%s\n' "$matched_version_rc"
-          echo Installing version "$1" ... 
+          echo Selecting version "$1" ... 
           INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
-          printf "Installing version %s by default\n" "$INSTALLING_VER"
+          # printf "Selecting version %s by default\n" "$INSTALLING_VER"
 
         # If ones does not ask for rc but there is no stable version and only rc
       else 
@@ -315,7 +356,7 @@ jvc_query_version_json() {
         jvc_warn "Only rc or beta version are available."
         printf -- '%s\n' "$matched_version_rc"
         INSTALLING_VER=$(printf "%s\n" "$matched_version_rc" | head -n1 | xargs)
-        printf "Installing version %s by default\n" "$INSTALLING_VER"
+        printf "Selecting version %s by default\n" "$INSTALLING_VER"
         fi
       fi
     else 
@@ -347,24 +388,22 @@ jvc_query_version_json() {
 
 
 jvc_get_version() {
-  if [ $# == 1 ]
-  then
+  if [ -z $1 ]; then
     jvc_query_latest_stable 
-  elif [ $# == 2 ] 
-  then
-    jvc_query_version_json "$2" 
   else 
-    echo "Unsupported number of arguments:" "${args[@]}"
+    jvc_query_version_json "$1" 
   fi
 }
 
 
+# Deprecated
 # Get the download url from json file (deprecated)
 # Try to avoid using jq as I do not want extra dependence 
 get_url(){
   jq  '."0.7.0-rc2".files[2].triplet' versions.json
 }
 
+# Deprecated
 # Check if version file exist
 check_version_file() {
   if [ -f "$JULIA_VERSION_FILE" ]; then
@@ -513,15 +552,13 @@ jvc_get_remote_checksum() {
   local julia_remote_tarball
   julia_remote_tarball=julia-$version-$platform-$arch
   local checksum_url
-  # checksum_url=$(jvc_get_upstream_checksum_url "$UPSTREAM_NAME")
-  checksum_url=$(jvc_get_upstream_checksum_local "$UPSTREAM_NAME")
+  # checksum_url=$(jvc_get_upstream_bin_url "$UPSTREAM_NAME")
+  checksum_url=$(jvc_get_upstream_bin_local "$UPSTREAM_NAME")
 
   local remote_checksum
-  remote_checksum=$(curl -s "${checksum_url}julia-$version.sha256" | grep "$julia_remote_tarball")
+  remote_checksum=$(curl -s "${checksum_url}checksums/julia-$version.sha256" | grep "$julia_remote_tarball")
   echo "$remote_checksum" | cut -d " " -f1
 }
-
-# jvc_get_remote_checksum 1.5.3
 
 
 jvc_compare_checksum() {
@@ -543,18 +580,18 @@ jvc_compare_checksum() {
   checksum="$(jvc_get_remote_checksum "$version")"
   if [ -z "${checksum}" ]; then 
     jvc_err "Provided checksum to compare is empty"
-    return 
+    return 1
   fi
   if [ -z "${computed_sum}" ]; then 
     echo "Computed checksum of '$julia_tarball' is empty."
-    jvc_warn "Continues without checksum verification. "
-    return 
+    jvc_warn "Continue without checksum verification. "
+    return 0 
   elif [ "${computed_sum}" != "${checksum}" ]; then 
     jvc_err "checksums do not match: '${computed_sum}' found, '${checksum}' is expected"
     return 1
   fi
-  jvc_done "Checksum matches with remote for version $version"
-  return 
+  jvc_done "Checksum matches with remote from upstream [$UPSTREAM_NAME] for version $version"
+  return 0
 }
 
 jvc_download_tarball_curl() {
@@ -562,24 +599,27 @@ jvc_download_tarball_curl() {
   local version
   url=$1
   version=$2
-  echo " Downloading from $url"
   if  [ ! -f "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz" ]; then
+    echo " Downloading from $url"
     echo -n "    "
     if curl --progress-bar --compressed "$url" --output "$JULIA_DOWNLOAD_DIR/julia-$version".tar.gz; then
-      echo " Downloading finished."
+      jvc_done "Downloading finished."
       jvc_compare_checksum "$version"
     else 
       echo " Download fails. Please check your connection."
       rm julia-"$version".tar.gz
     fi
   else
-    echo " Julia $version is already downloaded as $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"
-    jvc_compare_checksum "$version"
-    local checksum_status
-    checksum_status=$?
-    if $(exit $checksum_status); then 
-      return 
-    else   
+    jvc_warn "The binary for julia $version is already downloaded as $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"
+    # jvc_compare_checksum "$version"
+    # local checksum_status
+    # checksum_status=$?
+    # if $(exit $checksum_status); then 
+    #   return 
+    # else   
+    if jvc_compare_checksum "$version"; then
+      return 0
+    else
       local choice 
       printf "Do you want to remove it and redownload? [y/n] " 
       read -r choice
@@ -604,25 +644,23 @@ jvc_download_tarball_wget() {
   local version
   url=$1
   version=$2
-  echo " Downloading from $url"
   if  [ ! -f "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz" ]; then
+    echo " Downloading from $url"
     echo -n "    "
     if wget -q --show-progress -c "$url" -O "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"; then
-      echo " Downloading finished."
+      jvc_done "Downloading finished."
       jvc_compare_checksum "$version"
     else 
       echo " Download fails. Please check your connection."
       rm julia-"$version".tar.gz
     fi
   else
-    echo " Julia $version is already downloaded as $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"
-    jvc_compare_checksum "$version"
-    local checksum_status
-    checksum_status=$?
-    if $(exit $checksum_status); then 
-      return 
-    else   
+    jvc_warn "The binary for julia $version is already downloaded as $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz"
+    if jvc_compare_checksum "$version"; then
+      return 0
+    else
       local choice 
+      jvc_warn "This may due to an incomplete download occurence."
       printf "Do you want to remove it and redownload? [y/n] " 
       read -r choice
       case "$choice" in 
@@ -637,6 +675,41 @@ jvc_download_tarball_wget() {
       esac
     fi
   fi
+}
+
+
+# jvc download url version
+jvc_download() {
+  local url 
+  local version
+  url=$1 
+  version=$2
+  if jvc_has "wget"; then
+    jvc_download_tarball_wget "$url" "$version"
+  elif jvc_has "curl"; then
+    jvc_download_tarball_curl "$url" "$version"
+  else 
+    jvc_err "Either wget or curl is required for downloading."
+  fi
+}
+
+# jvc_extract version
+jvc_extract() {
+  local version
+  version="$1"
+  # mkdir "$JULIA_INSTALL_DIR"/julia-"$version"
+  # TODO: Suffix problem not resolved yet for MacOS
+  tar xzf "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz" -C "$JULIA_INSTALL_DIR" --totals
+  jvc_done "Extraction done."
+}
+
+# jvc_link version
+jvc_link() {
+  local version
+  version="$1"
+  echo Creating symbolic link julia-"$version" in "$JULIA_SYMLINK_DIR"
+  jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
+  ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
 }
 
 has_symlink_version() {
@@ -666,10 +739,13 @@ jvc_load() {
   else
     if [ -e "$bin_julia" ]; then
       echo "Loading julia-$version"
-      ln -s "$bin_julia" "$JULIA_SYMLINK_DIR"/julia-"$version"
+      if ln -s "$bin_julia" "$JULIA_SYMLINK_DIR"/julia-"$version"; then
+        jvc_done "Symlink julia-$version is ready to use." 
+      fi
     else
       jvc_err "Directory $bin_julia does not exist."
       jvc_err "The corresponding version may not be installed."
+      jvc installed 
     fi
   fi
 }
@@ -679,18 +755,43 @@ jvc_unload() {
   version=$1
   if has_symlink_version "$version" ; then 
     rm "$JULIA_SYMLINK_DIR"/julia-"$version"
-    echo Symlink julia-"$version" has been removed from "$JULIA_SYMLINK_DIR"
+    jvc_done Symlink julia-"$version" has been removed from "$JULIA_SYMLINK_DIR"
   else
-    echo julia-"$version" is not loaded.
-    echo No operation is performed.
+    jvc_warn julia-"$version" is not loaded.
+    jvc_warn No operation is performed.
   fi
 }
 
 jvc_installed_version() {
-  # ls "$JULIA_INSTALL_DIR" | cut -d "-" -f2- 
+  # command find "$JULIA_INSTALL_DIR" -maxdepth 1 -type d -name "julia-*"  \
+  #   | cut -d "-" -f2- | sort -r   
+  # Above implementation might leads to problem when `-` is used in the directory
   command find "$JULIA_INSTALL_DIR" -maxdepth 1 -type d -name "julia-*"  \
-    | cut -d "-" -f2- | sort -r 
+    | command awk -F"$JULIA_INSTALL_DIR" '{print $2}' \
+    | command awk -F"julia-" '{print $2}' | sort -r 
   }
+
+# Fake check as only the directory is checked
+jvc_has_version_installed() {
+  local version
+  version="$1"
+  if [ -n "$(command find "$JULIA_INSTALL_DIR" -maxdepth 1 -type d -name "julia-$version")" ]; then
+    return 0
+  else 
+    return 1
+  fi
+}
+
+jvc_has_version_downloaded() {
+  local version
+  version="$1"
+  if [ -n "$(command find "$JULIA_DOWNLOAD_DIR" -maxdepth 1 -type f -name "julia-$version.*")" ]; then
+    return 0
+  else 
+    return 1
+  fi
+}
+
 
 jvc_loaded_version() {
   # ls "$JULIA_SYMLINK_DIR" | grep julia- | cut -d "-" -f2- 
@@ -700,7 +801,7 @@ jvc_loaded_version() {
   }
 
 
-jvc_download_version() {
+jvc_downloaded_version() {
   cd "$JULIA_DOWNLOAD_DIR" || return 1
   ls julia-*.tar.gz   
 }
@@ -747,22 +848,24 @@ jvc_switch() {
     exit 1
   fi
 
-  if [ -n "$(command -v julia)" ] ; then
-    local existing_version
-    existing_version=$(julia --version | cut -d " " -f3-) 
-    if [ "$existing_version" = "$version" ]; then
-      echo Your are already at version "$version" 
-      echo No operation will be performed.
-      return 
-    fi
-    echo Current 'julia' alias has been selected as "$(julia --version)"
-    if jvc_confirm2 "Do you want to switch to julia $version [y/n] ? "; 
-    then 
-      ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
-    fi
-  else 
-    echo  "'julia' alias has been selected as julia $version. " 
+  # if [ -n "$(command -v julia)" ] ; then
+  local existing_version
+  existing_version=$(julia --version | cut -d " " -f3-) 
+  if [ "$existing_version" = "$version" ]; then
+    echo Your are already at version "$version" 
+    echo No operation will be performed.
+    return 
   fi
+  echo Current 'julia' symlink has been selected as "$(julia --version)"
+  if jvc_confirm2 "Do you want to switch to julia $version [y/n] ? "; 
+  then 
+    ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
+    jvc_done  "'julia' alias has been selected as julia $version. " 
+  fi
+  # else 
+  #   ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
+  #   jvc_done  "'julia' alias has been selected as julia $version. " 
+  # fi
 }
 
 jvc_migrate() { 
@@ -777,7 +880,7 @@ jvc_migrate() {
     echo "JULIA_DEPOT_PATH not found, using ~/.julia by default" 
     depot_path="$HOME/.julia"
   else 
-    depot_path=$JULIA_DEPOT_PATH # This is problemmatic
+    depot_path=$JULIA_DEPOT_PATH # This might be a problem
   fi
   if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
     echo Matching statement. Proceed for Project.toml comparison.
@@ -789,28 +892,22 @@ jvc_migrate() {
   # -c for POSIX Diff 
   diff -y --color "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"
   echo "v$from_version Project.toml ===========>  ===========>  ===========> ===========>  v$to_version Project.toml"
-  if jvc_confirm2 "Continute to migrate Project.toml from v$from_version to v$to_version ? [Y/n] ";  then
+  if jvc_confirm2 "Continue to migrate Project.toml from v$from_version to v$to_version ? [Y/n] ";  then
     cp "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"
     cp "$depot_path/environments/v$from_version/Manifest.toml" "$depot_path/environments/v$to_version/Manifest.toml"
     echo Migration complete. 
   else 
     exit 1
   fi
-  #     # check if dir exist 
-  #     # if not create one ?
-  #     # overwrite behavior ? 
-  #     # What is the preference?
-  #   else 
-  #     echo Check your input format, it should be e.g., jvc migrate 1.5 to 1.6
-  #     echo Note that only major and minor version are supported.
-  #     exit 1 
 }
 
 
+# jvc main
 jvc() {
+  args=("$@")
   n_args=${#args[@]}
 
-  case ${args} in 
+  case "$1" in 
     "-h"| "help" | "--help")
       jvc_echo "        Julia Version Control (v${JVC_VERSION})" 
 
@@ -874,32 +971,198 @@ jvc() {
       jvc_echo "  jvc upstream" 
       ;;
     "install")
+      shift
+      local raw_version
+      raw_version="${1-}"
       jvc_get_sys_info arch platform
-      jvc_get_version "${args[@]}" 
+      jvc_get_version "$raw_version" 
       local version
       version=$INSTALLING_VER
       local url
       url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
-      if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
+
+      jvc_checkfolder install "$JULIA_INSTALL_DIR"
+
+      if jvc_confirm2 "Continue to install Julia $version ? [Y/n] ";  then
+        if jvc_has_version_installed $version; then
+          jvc_warn "Installation folder for version $version directory exists"
+          if jvc_confirm2 "Overwriting existing contents? [Y/n]"; then
+            jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
+            jvc_download "$url" "$version"
+            jvc_extract "$version"
+            jvc_link "$version"
+          else 
+            exit 0
+          fi
+
+        else 
+          jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
+          jvc_download "$url" "$version"
+          mkdir "$JULIA_INSTALL_DIR"/julia-"$version"
+          jvc_extract "$version"
+          jvc_link "$version"
+        fi
+      else 
+        # Cancel installation
+        exit 0 
+      fi 
+
+      jvc_done Installation done.
+      ;;
+    "remove"|"rm")
+      shift
+      if [ -n "$1" ]; then
+        jvc_warn "No version number is needed to specified"
+      fi
+      echo You have installed the following version:
+      jvc_installed_version
+      printf "Enter the version you would like to remove: "
+      # TODO: Check version format else re-enter or abort
+      # TODO: Check version matching in the installed_list 
+      read -r rm_version 
+      local rm_symlink
+      rm_symlink=$JULIA_SYMLINK_DIR/julia-$rm_version
+      local rm_bin
+      rm_bin=$JULIA_INSTALL_DIR/julia-$rm_version
+      #check in jvc_installed
+      #check in jvc_symlink
+      if jvc_confirm2 "Warning: you are about remove $rm_version from $JULIA_INSTALL_DIR. [y/n]" ;  then
+        rm -rf "$rm_bin" 
+        [ -L "$rm_symlink" ] && rm -rf "$rm_symlink"
+        jvc_done "Uninstallation done."
+      fi
+      ;;
+    "download")
+      shift
+      local raw_version
+      raw_version="${1-}"
+      jvc_get_sys_info arch platform
+      jvc_get_version "$raw_version" 
+      local version
+      version=$INSTALLING_VER
+      local url
+      url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
+      if jvc_confirm2 "Continue to download Julia $version ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         if jvc_has "wget"; then
           jvc_download_tarball_wget "$url" "$version"
         elif jvc_has "curl"; then
           jvc_download_tarball_curl "$url" "$version"
+        else 
+          jvc_err "Either wget or curl is required for downloading."
+        fi
+      else 
+        exit 1
+      fi
+      ;;
+    "load")
+      #TODO: autocompletion from installed_list
+      #TODO: check the validity of version number
+      #TODO: check the version number in the installed list
+      #TODO: same for unload
+      shift 
+      jvc_check_empty "$1" "version number is required for load argument" 
+      local load_version="$1"
+      jvc_load "$load_version" 
+      ;;
+    "unload")
+      shift 
+      jvc_check_empty "$1" "version number is required for unload argument" 
+      local unload_version=$1
+      jvc_unload "$unload_version"
+      ;;
+    "loaded")
+      jvc_loaded_version
+      ;;
+    "status"|"st")
+      echo ==============================
+      echo "Installed version" "$JULIA_INSTALL_DIR"
+      jvc_installed_version
+      echo ==============================
+      echo "Loaded version" "$JULIA_SYMLINK_DIR"
+      jvc_loaded_version
+      echo ==============================
+      echo "Downloaded version" "$JULIA_DOWNLOAD_DIR"
+      jvc_downloaded_version
+      echo ==============================
+      echo "Current upstream is $UPSTREAM_NAME"
+      ;;
+    "available"|"avail")
+      shift
+      case "$1" in
+        "stable"|"")
+          jvc_ls_stable  
+          ;;
+        "all")
+          jvc_ls_all
+          ;;
+      esac
+      ;;
+    "search")
+      # TODO: rewrite version search logic together with download/install 
+      shift 
+      if [ -n "$1" ]; then
+        jvc_search "$1"
+      else 
+        jvc_get_version ""
+      fi
+      ;;
+    "switch")
+      # TODO Check if current julia symlink are maintained by jvc
+      if jvc_has_julia_installed; then
+        if [  $(dirname $(command -v julia)) = $(realpath $JULIA_SYMLINK_DIR) ]; then
+          #  Maintained
+          shift
+          jvc_check_empty $1 "version number is required for switch"
+          local version=$1 
+          if [ -n "$version" ]; then
+            jvc_switch "$version" 
+          else
+            jvc_err "Please input a valid version"
+            jvc_echo "Available versions are:"
+            jvc installed
+          fi
+        else 
+          # No maintained 
+          jvc_warn "Your current julia is not maintained by jvc."
+          jvc_echo "Manual intervention is requied."
+        fi
+      else 
+        shift
+        jvc_check_empty $1 "version number is required for switch"
+        local version=$1 
+        if [ -n "$version" ]; then
+          jvc_switch "$version" 
+        else
+          jvc_err "Please input a valid version"
+          jvc_echo "Available versions are:"
+          jvc installed
+        fi
+      fi
+      ;;
+    "nightly") 
+      jvc_get_sys_info arch platform
+      local url
+      url=$(jvc_get_nightly_url "$platform" $arch)
+      if jvc_confirm2 "Continue to download Julia nightly ? [y/n] ";  then
+        jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
+        if jvc_has "wget"; then
+          jvc_download_tarball_wget "$url" nightly 
+        elif jvc_has "curl"; then
+          jvc_download_tarball_curl "$url" nightly 
         fi
       else 
         exit 1
       fi
       jvc_checkfolder install "$JULIA_INSTALL_DIR"
-      if [ -d "$JULIA_INSTALL_DIR/julia-$version" ]; then 
+      if [ -d "$JULIA_INSTALL_DIR/julia-nightly" ]; then 
         echo Installation folder exist. 
-        printf "Overwrite the existing contents? [y/n] "  
+        printf "Overwrite the existing contents? [y/n] "
         read -r choice
         case "$choice" in 
           y|Y|yes ) 
-            echo "tar xzf $JULIA_DOWNLOAD_DIR/julia-$version.tar.gz -C  $JULIA_INSTALL_DIR/julia-$version --totals"
-            tar xzf "$JULIA_DOWNLOAD_DIR"/julia-"$version".tar.gz -C  "$JULIA_INSTALL_DIR"/ --totals
-            jvc_done Extracting done.
+            tar xzf "$JULIA_DOWNLOAD_DIR"/julia-nightly.tar.gz -C  "$JULIA_INSTALL_DIR"/julia-nightly --totals --strip-components=1
+            echo Extracting done.
             ;;
           n|N|no ) echo "Aborted."  
             exit 1
@@ -909,181 +1172,60 @@ jvc() {
             ;;
         esac
       else
-        mkdir "$JULIA_INSTALL_DIR"/julia-"$version"
-        tar xzf "$JULIA_DOWNLOAD_DIR/julia-$version.tar.gz" -C "$JULIA_INSTALL_DIR" --totals
+        mkdir "$JULIA_INSTALL_DIR"/julia-nightly
+        tar xzf "$JULIA_DOWNLOAD_DIR/julia-nightly.tar.gz" -C "$JULIA_INSTALL_DIR"/julia-nightly --totals --strip-components=1
         echo Extracting done.
       fi
 
-# Create links
-echo Creating symbolic link julia-"$version" in "$JULIA_SYMLINK_DIR"
-jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
-ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
-jvc_done Installation done.
-;;
-"remove"|"rm")
-  echo You have installed the following version:
-  jvc_installed_version
-  printf "Enter the version you would like to remove: "
-  # Check version format else re-enter or abort
-  read -r rm_version 
-  local rm_symlink
-  rm_symlink=$JULIA_SYMLINK_DIR/julia-$rm_version
-  local rm_bin
-  rm_bin=$JULIA_INSTALL_DIR/julia-$rm_version
-  #check in jvc_installed
-  #check in jvc_symlink
-  if jvc_confirm2 "Warning: you are about remove $rm_version from $JULIA_INSTALL_DIR. [y/n]" ;  then
-    rm -rf "$rm_bin" 
-    [ -L "$rm_symlink" ] && rm -rf "$rm_symlink"
-    jvc_done "Uninstallation done."
-  fi
-  ;;
-"download")
-  jvc_get_sys_info arch platform
-  jvc_get_version "${args[@]}" 
-  local version
-  version=$INSTALLING_VER
-  local url
-  url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
-  if jvc_confirm2 "Continute to download Julia $version ? [y/n] ";  then
-    jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-    if jvc_has "wget"; then
-      jvc_download_tarball_wget "$url" "$version"
-    elif jvc_has "curl"; then
-      jvc_download_tarball_curl "$url" "$version"
-    fi
-  else 
-    exit 1
-  fi
-  ;;
-"load")
-  jvc_load "${args[1]}"
-  ;;
-"unload")
-  jvc_unload "${args[1]}" 
-  ;;
-"loaded")
-  jvc_loaded_version
-  ;;
-"status"|"st")
-  echo ==============================
-  echo "Installed version" "$JULIA_INSTALL_DIR"
-  jvc_installed_version
-  echo ==============================
-  echo "Loaded version" "$JULIA_SYMLINK_DIR"
-  jvc_loaded_version
-  echo ==============================
-  echo "Downloaded version" "$JULIA_DOWNLOAD_DIR"
-  jvc_download_version
-  echo ==============================
-  echo "Current upstream is $UPSTREAM_NAME"
-  ;;
-"available"|"avail")
-  case ${args[1]} in
-    "stable"|"")
-      jvc_ls_stable  
+      # Create links
+      echo Creating symbolic link julia-nightly in "$JULIA_SYMLINK_DIR"
+      jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
+      ln -sf "$JULIA_INSTALL_DIR"/julia-nightly/bin/julia "$JULIA_SYMLINK_DIR"/julia-nightly
+      echo Installation done.
       ;;
-    "all")
-      jvc_ls_all
+    "installed")
+      echo List all Julia version installed 
+      jvc_installed_version
       ;;
+    "upstream")
+      echo Current upstream is "$UPSTREAM_NAME"
+      echo The available upstreams are: 
+      local upstream_list
+      upstream_list=$(jvc_get_upstream_list_local)
+      local upstream_short=($(echo "${upstream_list[@]}" | awk -F[.:] '{print $1}'))
+      jvc_split "$upstream_list" , upstream_menu
+      unset 'upstream_menu[-1]'
+      echo "${upstream_list[@]}" | awk -F[.:] '{print "  " NR ". " $1 ": " $2}'
+      printf "Select your preferred upstream. (Enter number [1-%i]): "  "${#upstream_menu[@]}"
+      read -r upstream_choice
+      # if [ "$upstream_choice" -eq "$upstream_choice" ] && [ "$upstream_choice" -le ${#upstream_menu[@]} ] ; then 
+
+      if [[ "$upstream_choice" == ?(-)+([0-9]) ]] && [ "$upstream_choice" -le ${#upstream_menu[@]} ]; then 
+        local jvc_dir
+        jvc_dir=$(dirname "$0")
+        sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" "$jvc_dir"/.jvcrc
+        echo Your upstream is switched to "${upstream_menu[$upstream_choice-1]}" 
+      else
+        echo "Aborted."
+      fi
+      ;;
+    "purge")
+      jvc_purge
+      ;;
+    "migrate")
+      shift
+      jvc_migrate "$1" "$2" "$3"
+      ;;
+    "version" | "-v" | "--version")
+      echo "Julia Version Control (JVC) version $JVC_VERSION"
+      echo "Author: Xiansong Xu (songxianxu@gmail.com)"
+      ;;
+    *) 
+      jvc_warn Unsupported arguements. Check your input.
   esac
-  ;;
-"search")
-  if [ "${args[1]}" != "" ]; then
-    jvc_search "${args[1]}" 
-  else 
-    jvc_get_version ""
-  fi
-  ;;
-"switch")
-  jvc_switch "${args[1]}" 
-  ;;
-"nightly") 
-  jvc_get_sys_info arch platform
-  local url
-  url=$(jvc_get_nightly_url "$platform" $arch)
-  if jvc_confirm2 "Continute to download Julia nightly ? [y/n] ";  then
-    jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
-    if jvc_has "wget"; then
-      jvc_download_tarball_wget "$url" nightly 
-    elif jvc_has "curl"; then
-      jvc_download_tarball_curl "$url" nightly 
-    fi
-  else 
-    exit 1
-  fi
-  jvc_checkfolder install "$JULIA_INSTALL_DIR"
-  if [ -d "$JULIA_INSTALL_DIR/julia-nightly" ]; then 
-    echo Installation folder exist. 
-    printf "Overwrite the existing contents? [y/n] "
-    read -r choice
-    case "$choice" in 
-      y|Y|yes ) 
-        tar xzf "$JULIA_DOWNLOAD_DIR"/julia-nightly.tar.gz -C  "$JULIA_INSTALL_DIR"/julia-nightly --totals --strip-components=1
-        echo Extracting done.
-        ;;
-      n|N|no ) echo "Aborted."  
-        exit 1
-        ;; 
-      * ) echo "Invalid input, please enter yes or no"
-        exit 1 
-        ;;
-    esac
-  else
-    mkdir "$JULIA_INSTALL_DIR"/julia-nightly
-    tar xzf "$JULIA_DOWNLOAD_DIR/julia-nightly.tar.gz" -C "$JULIA_INSTALL_DIR"/julia-nightly --totals --strip-components=1
-    echo Extracting done.
-  fi
-
-# Create links
-echo Creating symbolic link julia-nightly in "$JULIA_SYMLINK_DIR"
-jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
-ln -sf "$JULIA_INSTALL_DIR"/julia-nightly/bin/julia "$JULIA_SYMLINK_DIR"/julia-nightly
-echo Installation done.
-;;
-"installed")
-  echo List all Julia version installed 
-  jvc_installed_version
-  ;;
-"upstream")
-  echo Current upstream is "$UPSTREAM_NAME"
-  echo The available upstreams are: 
-  local upstream_list
-  upstream_list=$(jvc_get_upstream_list_local)
-  local upstream_short=($(echo "${upstream_list[@]}" | awk -F[.:] '{print $1}'))
-  jvc_split "$upstream_list" , upstream_menu
-  unset 'upstream_menu[-1]'
-  echo "${upstream_list[@]}" | awk -F[.:] '{print "  " NR ". " $1 ": " $2}'
-  printf "Select your preferred upstream. (Enter number [1-%i]): "  "${#upstream_menu[@]}"
-  read -r upstream_choice
-
-  # if [ "$upstream_choice" -eq "$upstream_choice" ] && [ "$upstream_choice" -le ${#upstream_menu[@]} ] ; then 
-
-  if [[ "$upstream_choice" == ?(-)+([0-9]) ]] && [ "$upstream_choice" -le ${#upstream_menu[@]} ]; then 
-    local jvc_dir
-    jvc_dir=$(dirname "$0")
-    sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" "$jvc_dir"/.jvcrc
-    echo Your upstream is switched to "${upstream_menu[$upstream_choice-1]}" 
-  else
-    echo "Aborted."
-  fi
-  ;;
-"purge")
-  jvc_purge
-  ;;
-"migrate")
-  # Matching from here
-  jvc_migrate ${args[1]} ${args[2]} ${args[3]}
-  ;;
-"version" | "-v" | "--version")
-  echo "Julia Version Control (JVC) version $JVC_VERSION"
-  echo "Author: Xiansong Xu (songxianxu@gmail.com)"
-  ;;
-*) 
-  echo Unsupported arguements. Check your input.
-esac
 }
 
-jvc
+jvc $@ 
+
 
 
