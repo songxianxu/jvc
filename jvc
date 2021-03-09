@@ -5,6 +5,7 @@
 # Default yes for confirm
 # HTTP error code for download
 # Improve logic for nightly 
+# jvc install 1.1.1.1, failed to filtered out invalid version
 
 
 #!/usr/bin/env bash
