@@ -1,24 +1,20 @@
 # TODO:
 
-# Switch not stable yet 
-# Better version matching from list, e.g. exact version matching for switch 1.6.0, 1.6.0-rc1
+# Revise load logic, same as install. jvc load 1.5 julia-1.5 => julia-1.5.newest locally
 # Default yes for confirm
 # HTTP error code for download
 # Improve logic for nightly 
-# jvc install 1.1.1.1, failed to filtered out invalid version
-
+# Add Mac support
 
 #!/usr/bin/env bash
 source "$(dirname "$0")/.jvcrc"
 JVC_DIR="$(dirname "$0")"
-JVC_VERSION="0.2.0"
+JVC_VERSION="0.2.1"
 
 # Basic std
-
 jvc_echo() {
   command printf %s\\n "$*" 2>/dev/null
 }
-
 jvc_err() {
   bold=$(command tput bold)
   command printf "\e[31m${bold}Error: %s\e[m\\n" "$*" 2>/dev/null
@@ -47,14 +43,44 @@ jvc_has_julia_installed() {
   fi
 }
 
+# Check semver
+# https://github.com/T5CC/semver-regex
+# There is some issue with the regex provided by semver.org
+jvc_is_semver() {
+  local semver
+  semver="^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-((0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*)){0,1}(\+([0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)){0,1}$"
+  echo "$1" | grep -qE "${semver}"
+}
 
-# jvc_pre_installed_version() {
-#   if jvc_has_julia_installed; then
-#     echo Julia version "$(julia --version | awk '{print $3}') has been installed."
-#   fi
-# }
+jvc_is_major() {
+  echo "$1" | grep -qE "^(0|[1-9]\d*)$"
+}
 
-jvc_check_empty() {
+jvc_is_major_minor() {
+  echo "$1" | grep -qE "^(0|[1-9]\d*)\.(0|[1-9]\d*)$"
+}
+
+jvc_is_major_minor_patch() {
+  echo "$1" | grep -qE "^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
+}
+
+jvc_check_version() {
+  if jvc_is_major "$1"; then  
+    return 0 
+  elif jvc_is_major_minor "$1"; then
+    return 0 
+  elif jvc_is_major_minor_patch "$1"; then
+    return 0 
+  elif jvc_is_semver "$1"; then
+    return 0
+  else
+    jvc_err "Unsupported version format." 
+    return 1
+  fi
+}
+
+
+jvc_check_null() {
   if [ -n "$1"  ]; then
     return 0
   else 
@@ -62,15 +88,6 @@ jvc_check_empty() {
     exit 1
   fi
 }
-
-
-# http ://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-stringcho "$xyz"
-# TODO: Implement server check
-jvc_is_exact_version() {
-  jvc_echo "TODO"
-}
-
-
 
 
 # https://unix.stackexchange.com/questions/614299/how-to-split-a-string-by-character-in-bash-zsh
@@ -300,6 +317,7 @@ jvc_query_version_json() {
   local version_raw
   version_raw=$1
   local version_tmp
+
   jvc_split "$version_raw" . version_tmp
   if [ -z "${version_tmp[1]}" ] || [ -z "${version_tmp[2]}" ] ; then 
     has_exact_version=0
@@ -392,19 +410,11 @@ jvc_get_version() {
   if [ -z $1 ]; then
     jvc_query_latest_stable 
   else 
+    jvc_check_version "$1" || return 1
     jvc_query_version_json "$1" 
   fi
 }
 
-
-# Deprecated
-# Get the download url from json file (deprecated)
-# Try to avoid using jq as I do not want extra dependence 
-get_url(){
-  jq  '."0.7.0-rc2".files[2].triplet' versions.json
-}
-
-# Deprecated
 # Check if version file exist
 check_version_file() {
   if [ -f "$JULIA_VERSION_FILE" ]; then
@@ -758,8 +768,8 @@ jvc_unload() {
     rm "$JULIA_SYMLINK_DIR"/julia-"$version"
     jvc_done Symlink julia-"$version" has been removed from "$JULIA_SYMLINK_DIR"
   else
-    jvc_warn julia-"$version" is not loaded.
-    jvc_warn No operation is performed.
+    jvc_warn "julia-"$version" is not loaded. No operation is performed."
+    jvc_echo "(Check loaded versions using 'jvc loaded'.)"
   fi
 }
 
@@ -781,6 +791,13 @@ jvc_has_version_installed() {
   else 
     return 1
   fi
+}
+
+jvc_check_version_installed() {
+  if ! jvc_has_version_installed "$1" ; then
+    jvc_err "Input version $1 might not be installed"
+    exit 9
+  fi 
 }
 
 jvc_has_version_downloaded() {
@@ -807,46 +824,39 @@ jvc_downloaded_version() {
   ls julia-*.tar.gz   
 }
 
+
 jvc_purge() {
-  echo Note that the default julia symlink will not be purged.
+  jvc_echo "Note that the default julia symlink will not be purged."
   local loaded_version
   loaded_version=$(jvc_loaded_version)
   if [ -n "$loaded_version" ]; then
-    echo The following version has been loaded:
-    echo "$loaded_version" | awk '{print "  " $1}'
+    jvc_echo The following version has been loaded:
+    jvc_echo "$loaded_version" | awk '{print "  " $1}'
     if jvc_confirm2 "Warning: the purge command will unload/remove all julia symbolic links? [y/n] " ;  then
       for version in $loaded_version
       do
         jvc_unload "$version"
-        echo julia-"$version" has been unloaded.
+        jvc_echo "julia-$version has been unloaded."
       done
     fi
   else
-    echo No Julia version is loaded. There is nothing to purge.
+    jvc_warn "No Julia version is loaded. There is nothing to purge."
   fi
-
 }
-
 
 jvc_switch() {
   local version
   version=$1
   local installed_version
   installed_version=$(jvc_installed_version)
-  available_version=$(jvc_ls_all)
-  # if [[ ! "${installed_version[@]}" =~  "$version" ]]; then
-  if ! printf '%s\n' "$available_version" | grep -q "$version"; then 
-    echo Input version "$version" is not a valid version.
-    echo "(Please check all available version using \"jvc avail all\".)"
-    exit 1 
-  fi
+  jvc_check_version "$version" || return 9
 
-
-  if ! printf '%s\n' "$installed_version" | grep -q "$version"; then 
-    echo input version "$version" seems not be installed.
-    echo Installed versions are:
+  # if ! printf '%s\n' "$installed_version" | grep -Eq "^($version)$"; then 
+  if ! jvc_has_version_installed "$version" ; then 
+    jvc_err "Input version $version might not be installed"
+    jvc_echo "Installed versions are:"
     jvc_installed_version
-    exit 1
+    exit 9
   fi
 
   # if [ -n "$(command -v julia)" ] ; then
@@ -883,20 +893,27 @@ jvc_migrate() {
   else 
     depot_path=$JULIA_DEPOT_PATH # This might be a problem
   fi
-  if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
-    echo Matching statement. Proceed for Project.toml comparison.
+
+  # Get ride of bashism
+  # if [[ $objective == @([0-9].[0-9] to [0-9].[0-9]) ]]; then
+  if echo "$objective" | grep -qE "^(0|[1-9]\d*)\.(0|[1-9]\d*)[[:space:]]to[[:space:]](0|[1-9]\d*)\.(0|[1-9]\d*)$"; then
+    jvc_echo "Matching statement. Proceed for Project.toml comparison."
   else 
-    echo Wrong argument. Please check your inputs.
+    jvc_echo "Wrong argument. Please check your inputs."
     exit 1
   fi
-  # -y for GNU Diff 
+  # -y for GNU Diff gives two cols diff 
   # -c for POSIX Diff 
-  diff -y --color "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"
-  echo "v$from_version Project.toml ===========>  ===========>  ===========> ===========>  v$to_version Project.toml"
+  # This might have to be changed depending on the popularity of GNU diff 
+  # if diff -y --color  "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"; then 
+  if diff -c --color  "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"; then 
+    jvc_warn "No difference were found"
+  fi
+  jvc_echo "v$from_version Project.toml ===================> v$to_version Project.toml"
   if jvc_confirm2 "Continue to migrate Project.toml from v$from_version to v$to_version ? [Y/n] ";  then
     cp "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"
     cp "$depot_path/environments/v$from_version/Manifest.toml" "$depot_path/environments/v$to_version/Manifest.toml"
-    echo Migration complete. 
+    jvc_done "Migration completes." 
   else 
     exit 1
   fi
@@ -975,6 +992,7 @@ jvc() {
       shift
       local raw_version
       raw_version="${1-}"
+      # Check version format
       jvc_get_sys_info arch platform
       jvc_get_version "$raw_version" 
       local version
@@ -987,7 +1005,7 @@ jvc() {
       if jvc_confirm2 "Continue to install Julia $version ? [Y/n] ";  then
         if jvc_has_version_installed $version; then
           jvc_warn "Installation folder for version $version directory exists"
-          if jvc_confirm2 "Overwriting existing contents? [Y/n]"; then
+          if jvc_confirm2 "Overwriting existing contents? [Y/n] "; then
             jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
             jvc_download "$url" "$version"
             jvc_extract "$version"
@@ -1018,17 +1036,22 @@ jvc() {
       echo You have installed the following version:
       jvc_installed_version
       printf "Enter the version you would like to remove: "
-      # TODO: Check version format else re-enter or abort
-      # TODO: Check version matching in the installed_list 
       read -r rm_version 
+
+      if ! jvc_is_semver "$rm_version"; then
+        jvc_err "Not a valid version."; 
+        return 9
+      fi
+      jvc_check_version_installed "$rm_version"
+      
       local rm_symlink
       rm_symlink=$JULIA_SYMLINK_DIR/julia-$rm_version
       local rm_bin
       rm_bin=$JULIA_INSTALL_DIR/julia-$rm_version
-      #check in jvc_installed
-      #check in jvc_symlink
-      if jvc_confirm2 "Warning: you are about remove $rm_version from $JULIA_INSTALL_DIR. [y/n]" ;  then
-        rm -rf "$rm_bin" 
+
+      if jvc_confirm2 "You are about remove $rm_version from $JULIA_INSTALL_DIR. [Y/n] " ;  then
+      # TODO: verbose for remove 
+        rm -rf  "$rm_bin" 
         [ -L "$rm_symlink" ] && rm -rf "$rm_symlink"
         jvc_done "Uninstallation done."
       fi
@@ -1037,6 +1060,7 @@ jvc() {
       shift
       local raw_version
       raw_version="${1-}"
+      # Check version format
       jvc_get_sys_info arch platform
       jvc_get_version "$raw_version" 
       local version
@@ -1058,34 +1082,34 @@ jvc() {
       ;;
     "load")
       #TODO: autocompletion from installed_list
-      #TODO: check the validity of version number
-      #TODO: check the version number in the installed list
-      #TODO: same for unload
       shift 
-      jvc_check_empty "$1" "version number is required for load argument" 
+      jvc_check_null "$1" "version number is required for load argument" 
       local load_version="$1"
+      jvc_check_version "$1" || return 9
+      jvc_check_version_installed "$1" 
       jvc_load "$load_version" 
       ;;
     "unload")
       shift 
-      jvc_check_empty "$1" "version number is required for unload argument" 
+      jvc_check_null "$1" "version number is required for unload argument" 
       local unload_version=$1
+      jvc_check_version "$1" || return 9
       jvc_unload "$unload_version"
       ;;
     "loaded")
       jvc_loaded_version
       ;;
     "status"|"st")
-      echo ==============================
+      echo ===================================
       echo "Installed version" "$JULIA_INSTALL_DIR"
       jvc_installed_version
-      echo ==============================
+      echo ===================================
       echo "Loaded version" "$JULIA_SYMLINK_DIR"
       jvc_loaded_version
-      echo ==============================
+      echo ===================================
       echo "Downloaded version" "$JULIA_DOWNLOAD_DIR"
       jvc_downloaded_version
-      echo ==============================
+      echo ===================================
       echo "Current upstream is $UPSTREAM_NAME"
       ;;
     "available"|"avail")
@@ -1103,9 +1127,10 @@ jvc() {
       # TODO: rewrite version search logic together with download/install 
       shift 
       if [ -n "$1" ]; then
+        jvc_check_version "$1" || return 1
         jvc_search "$1"
       else 
-        jvc_get_version ""
+        jvc_get_version 
       fi
       ;;
     "switch")
@@ -1114,9 +1139,10 @@ jvc() {
         if [  $(dirname $(command -v julia)) = $(realpath $JULIA_SYMLINK_DIR) ]; then
           #  Maintained
           shift
-          jvc_check_empty $1 "version number is required for switch"
+          jvc_check_null $1 "version number is required for switch"
           local version=$1 
           if [ -n "$version" ]; then
+            jvc_check_version "$1" || return 1
             jvc_switch "$version" 
           else
             jvc_err "Please input a valid version"
@@ -1124,15 +1150,15 @@ jvc() {
             jvc installed
           fi
         else 
-          # No maintained 
           jvc_warn "Your current julia is not maintained by jvc."
           jvc_echo "Manual intervention is requied."
         fi
       else 
         shift
-        jvc_check_empty $1 "version number is required for switch"
+        jvc_check_null $1 "version number is required for switch"
         local version=$1 
         if [ -n "$version" ]; then
+          jvc_check_version "$1" || return 1
           jvc_switch "$version" 
         else
           jvc_err "Please input a valid version"
@@ -1201,13 +1227,14 @@ jvc() {
       read -r upstream_choice
       # if [ "$upstream_choice" -eq "$upstream_choice" ] && [ "$upstream_choice" -le ${#upstream_menu[@]} ] ; then 
 
+      # TODO: depracate bashism
       if [[ "$upstream_choice" == ?(-)+([0-9]) ]] && [ "$upstream_choice" -le ${#upstream_menu[@]} ]; then 
         local jvc_dir
         jvc_dir=$(dirname "$0")
         sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" "$jvc_dir"/.jvcrc
-        echo Your upstream is switched to "${upstream_menu[$upstream_choice-1]}" 
+        jvc_echo "Your upstream is switched to ${upstream_menu[$upstream_choice-1]}"
       else
-        echo "Aborted."
+        jvc_echo "Aborted."
       fi
       ;;
     "purge")
@@ -1218,8 +1245,8 @@ jvc() {
       jvc_migrate "$1" "$2" "$3"
       ;;
     "version" | "-v" | "--version")
-      echo "Julia Version Control (JVC) version $JVC_VERSION"
-      echo "Author: Xiansong Xu (songxianxu@gmail.com)"
+      jvc_echo "Julia Version Control (JVC) version $JVC_VERSION"
+      jvc_echo "Author: Xiansong Xu (songxianxu@gmail.com)"
       ;;
     *) 
       jvc_warn Unsupported arguements. Check your input.
