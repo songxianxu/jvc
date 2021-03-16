@@ -1212,12 +1212,13 @@ jvc() {
       read -r upstream_choice
       # if [ "$upstream_choice" -eq "$upstream_choice" ] && [ "$upstream_choice" -le ${#upstream_menu[@]} ] ; then 
 
-      # TODO: depracate bashism
-      if [[ "$upstream_choice" == ?(-)+([0-9]) ]] && [ "$upstream_choice" -le ${#upstream_menu[@]} ]; then 
+      # TODO: depracate bashism (fixed)
+      # if [[ "$upstream_choice" == ?(-)+([0-9]) ]] && [ "$upstream_choice" -le ${#upstream_menu[@]} ]; then 
+      if echo "$upstream_choice" | grep -Eq "^([0-${#upstream_menu[@]}])$" ; then 
         local jvc_dir
         jvc_dir=$(dirname "$0")
         sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" "$jvc_dir"/.jvcrc
-        jvc_echo "Your upstream is switched to ${upstream_menu[$upstream_choice-1]}"
+        jvc_echo "Your upstream is switched to ${upstream_short[$upstream_choice-1]}."
       else
         jvc_echo "Aborted."
       fi

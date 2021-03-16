@@ -1,7 +1,7 @@
 JULIA_DOWNLOAD_DIR=$HOME/Downloads/Julia/
 JULIA_INSTALL_DIR=$HOME/apps/julia/
 JULIA_SYMLINK_DIR=$HOME/.local/bin/jvc/
-UPSTREAM_NAME=Official
+UPSTREAM_NAME=BFSU
 
 
 # Deprecated
