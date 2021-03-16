@@ -1,7 +1,7 @@
 # TODO:
 
 # Revise load logic, same as install. jvc load 1.5 julia-1.5 => julia-1.5.newest locally
-# Default yes for confirm
+# Default yes for confirm (fixed)
 # HTTP error code for download
 # Improve logic for nightly 
 # Add Mac support
@@ -9,7 +9,7 @@
 #!/usr/bin/env bash
 source "$(dirname "$0")/.jvcrc"
 JVC_DIR="$(dirname "$0")"
-JVC_VERSION="0.2.1"
+JVC_VERSION="0.2.2"
 
 # Basic std
 jvc_echo() {
@@ -502,29 +502,14 @@ jvc_checkfolder() { #$1 action #2 Dir
 }
 
 
-jvc_confirm() { 
-  local version
-  version=$1
-  printf "Continue to download Julia %s ? (y/n) " "$version"
-  read -r choice
-  case "$choice" in 
-    y|Y|yes ) true ;;
-    n|N|no ) echo "Aborted."  
-      false ;; 
-    * ) echo "Invalid input, please enter yes or no"
-      false
-      ;;
-  esac
-}
-
 jvc_confirm2() { 
-  printf "%s" "$@"
+  printf "%s" "$2"
   read -r  choice
-  case "$choice" in 
+  case "${choice:-$1}" in 
     y|Y|yes ) return ;;
     n|N|no ) echo "Aborted."  
       false ;; 
-    * ) echo "Invalid input, please enter yes or no"
+    * ) echo "Invalid input, please enter yes or no."
       false
       ;;
   esac
@@ -832,7 +817,7 @@ jvc_purge() {
   if [ -n "$loaded_version" ]; then
     jvc_echo The following version has been loaded:
     jvc_echo "$loaded_version" | awk '{print "  " $1}'
-    if jvc_confirm2 "Warning: the purge command will unload/remove all julia symbolic links? [y/n] " ;  then
+    if jvc_confirm2 "N" "Warning: the purge command will unload/remove all julia symbolic links? [y/N] " ;  then
       for version in $loaded_version
       do
         jvc_unload "$version"
@@ -868,7 +853,7 @@ jvc_switch() {
     return 
   fi
   echo Current 'julia' symlink has been selected as "$(julia --version)"
-  if jvc_confirm2 "Do you want to switch to julia $version [y/n] ? "; 
+  if jvc_confirm2 "Y" "Do you want to switch to julia $version [Y/n] ? "; 
   then 
     ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
     jvc_done  "'julia' alias has been selected as julia $version. " 
@@ -910,7 +895,7 @@ jvc_migrate() {
     jvc_warn "No difference were found"
   fi
   jvc_echo "v$from_version Project.toml ===================> v$to_version Project.toml"
-  if jvc_confirm2 "Continue to migrate Project.toml from v$from_version to v$to_version ? [Y/n] ";  then
+  if jvc_confirm2 "Y" "Continue to migrate Project.toml from v$from_version to v$to_version ? [Y/n] ";  then
     cp "$depot_path/environments/v$from_version/Project.toml" "$depot_path/environments/v$to_version/Project.toml"
     cp "$depot_path/environments/v$from_version/Manifest.toml" "$depot_path/environments/v$to_version/Manifest.toml"
     jvc_done "Migration completes." 
@@ -1002,10 +987,10 @@ jvc() {
 
       jvc_checkfolder install "$JULIA_INSTALL_DIR"
 
-      if jvc_confirm2 "Continue to install Julia $version ? [Y/n] ";  then
+      if jvc_confirm2 "Y" "Continue to install Julia $version ? [Y/n] ";  then
         if jvc_has_version_installed $version; then
           jvc_warn "Installation folder for version $version directory exists"
-          if jvc_confirm2 "Overwriting existing contents? [Y/n] "; then
+          if jvc_confirm2 "Y" "Overwriting existing contents? [Y/n] "; then
             jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
             jvc_download "$url" "$version"
             jvc_extract "$version"
@@ -1049,7 +1034,7 @@ jvc() {
       local rm_bin
       rm_bin=$JULIA_INSTALL_DIR/julia-$rm_version
 
-      if jvc_confirm2 "You are about remove $rm_version from $JULIA_INSTALL_DIR. [Y/n] " ;  then
+      if jvc_confirm2 "Y" "You are about remove $rm_version from $JULIA_INSTALL_DIR. [Y/n] " ;  then
       # TODO: verbose for remove 
         rm -rf  "$rm_bin" 
         [ -L "$rm_symlink" ] && rm -rf "$rm_symlink"
@@ -1067,7 +1052,7 @@ jvc() {
       version=$INSTALLING_VER
       local url
       url=$(get_url_from_platform_arch_version "$platform" $arch "$version")
-      if jvc_confirm2 "Continue to download Julia $version ? [y/n] ";  then
+      if jvc_confirm2 "Y" "Continue to download Julia $version ? [Y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         if jvc_has "wget"; then
           jvc_download_tarball_wget "$url" "$version"
@@ -1171,7 +1156,7 @@ jvc() {
       jvc_get_sys_info arch platform
       local url
       url=$(jvc_get_nightly_url "$platform" $arch)
-      if jvc_confirm2 "Continue to download Julia nightly ? [y/n] ";  then
+      if jvc_confirm2 "Y" "Continue to download Julia nightly ? [y/n] ";  then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         if jvc_has "wget"; then
           jvc_download_tarball_wget "$url" nightly 
