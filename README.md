@@ -52,6 +52,9 @@ jvc install 1.5 # Install the newest major minor version 1.5
 jvc install 1.5.3 # Install 1.5.3
 jvc install 1.6.0 # Install 1.6.0, if not stable version exist, show rc version.
 jvc install 1.6.0-rc1
+jvc install rc
+jvc install lts 
+jvc install nightly
 jvc installed # list all installed version 
 ```
 
@@ -96,6 +99,10 @@ jvc nightly # Install the nightly version
 ```
 Note that there is no shasum check yet for nightly yet. Perhaps I didn't manage to find it.
 
+### upstream
+```
+jvc upstream # Select your upstream, default: Official
+```
 
 ### Update (Not implemented yet)
 Update jvc itself?
