@@ -64,6 +64,10 @@ jvc_is_major_minor_patch() {
   echo "$1" | grep -qE "^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$"
 }
 
+jvc_is_nightly() {
+  echo "$1" | grep -qE "^nightly$"
+}
+
 jvc_check_version() {
   if jvc_is_major "$1"; then  
     return 0 
@@ -72,6 +76,8 @@ jvc_check_version() {
   elif jvc_is_major_minor_patch "$1"; then
     return 0 
   elif jvc_is_semver "$1"; then
+    return 0
+  elif jvc_is_nightly "$1"; then
     return 0
   else
     jvc_err "Unsupported version format." 
