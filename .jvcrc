@@ -4,6 +4,10 @@ JULIA_SYMLINK_DIR=$HOME/.local/bin/jvc/
 UPSTREAM_NAME=Official
 
 
-# Deprecated
-JULIA_VERSION_FILE=versions.json
+# For Mac
+# JULIA_DOWNLOAD_DIR=$HOME/Downloads/Julia/
+# JULIA_INSTALL_DIR=/Applications/julia-apps/
+# JULIA_SYMLINK_DIR=$HOME/.local/bin/jvc/
+# UPSTREAM_NAME=Official
+
 

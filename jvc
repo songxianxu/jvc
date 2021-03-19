@@ -5,11 +5,13 @@
 # Add Mac support
 # Add secure protocols for download
 # Fix curl only utilties
+# Fix path double slash
+# Fix realpath (realpath may not be available in various distributions)
 
 #!/usr/bin/env bash
 source "$(dirname "$0")/.jvcrc"
 JVC_DIR="$(dirname "$0")"
-JVC_VERSION="0.2.3"
+JVC_VERSION="0.2.4"
 
 # Basic std
 jvc_echo() {
@@ -728,6 +730,26 @@ jvc_extract() {
   fi
 }
 
+# Mac version of extract
+jvc_mount() {
+  local version
+  version="$1"
+  if [ "$version" = "nightly" ]; then
+    if hdiutil "$JULIA_DOWNLOAD_DIR/julia-nightly.dmg" -quiet -mount required -mountpoint "$JULIA_INSTALL_DIR/julia-nightly"; then 
+      jvc_done "Extraction completed."
+    else
+      jvc_err "Extaction failed."
+    fi
+  else
+    if hdiutil "$JULIA_DOWNLOAD_DIR/julia-$version.dmg" -quiet -mount required -mountpoint "$JULIA_INSTALL_DIR"; then
+      jvc_done "Extraction completed."
+    else
+      jvc_err "Extaction failed."
+    fi
+  fi
+}
+
+
 # jvc_link version
 jvc_link() {
   local version
@@ -869,23 +891,28 @@ jvc_switch() {
     exit 9
   fi
 
-  local existing_version
-  existing_version=$(julia --version | cut -d " " -f3-) 
-  if [ "$existing_version" = "$version" ]; then
-    echo Your are already at version "$version" 
-    echo No operation will be performed.
-    return 
+  if jvc_has_julia_installed; then
+    local existing_version
+    existing_version=$(command julia --version | cut -d " " -f3-) 
+    if [ "$existing_version" = "$version" ]; then
+      jvc_echo Your are already at version "$version" 
+      jvc_echo No operation will be performed.
+      return 
+    fi
+    echo Current 'julia' symlink has been selected as "$(command julia --version | cut -d " " -f3-)"
+    if jvc_confirm2 "Y" "Do you want to switch to julia $version [Y/n] ? "; 
+    then 
+      ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
+      jvc_done  "'julia' alias has been selected as julia $version. " 
+    fi
+  else
+    jvc_warn "No 'julia' alias is found."
+    if jvc_confirm2 "Y" "Do you want to create the 'julia' alias and link to julia $version [Y/n] ? "; 
+    then 
+      ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
+      jvc_done  "'julia' alias has been selected as julia $version. " 
+    fi
   fi
-  echo Current 'julia' symlink has been selected as "$(julia --version)"
-  if jvc_confirm2 "Y" "Do you want to switch to julia $version [Y/n] ? "; 
-  then 
-    ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
-    jvc_done  "'julia' alias has been selected as julia $version. " 
-  fi
-  # else 
-  #   ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia
-  #   jvc_done  "'julia' alias has been selected as julia $version. " 
-  # fi
 }
 
 jvc_migrate() { 
@@ -944,8 +971,6 @@ jvc_install_linux() {
         jvc_download_tarball "$url" "$version" 
         jvc_extract "$version"
         jvc_link "$version"
-      else 
-        exit 0
       fi
 
     else 
@@ -961,7 +986,33 @@ jvc_install_linux() {
 
 
 jvc_install_mac() {
-  jvc_echo "Coming soon...(19/03/2021)"
+  # jvc_echo "Coming soon...(19/03/2021)"
+  local version
+  version="$1"
+  local url
+  url=$(jvc_get_url_from_sys_arch_version "$JVC_SYS" $JVC_ARCH "$version" "$JVC_SUFFIX")
+
+  jvc_checkfolder install "$JULIA_INSTALL_DIR"
+
+  if jvc_confirm2 "Y" "Continue to install Julia $version ? [Y/n] ";  then
+    if jvc_has_version_installed $version; then
+      jvc_warn "Installation folder for version $version directory exists"
+      if jvc_confirm2 "Y" "Overwriting existing contents? [Y/n] "; then
+        jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
+        jvc_download_tarball "$url" "$version" 
+        jvc_mount "$version"
+        jvc_link "$version"
+      fi
+
+    else 
+      jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
+      jvc_download_tarball "$url" "$version" 
+      mkdir "$JULIA_INSTALL_DIR"/julia-"$version"
+      jvc_mount "$version"
+      jvc_link "$version"
+    fi
+  fi 
+  jvc_done "Installation done."
 }
 
 
@@ -1059,7 +1110,8 @@ jvc() {
           jvc_install_linux "$version"
           ;;
         "darwin")
-          jvc_install_mac "$version"
+          echo "To be tested. I do not have a Mac."
+          # jvc_install_mac "$version"
       esac
       ;;
     "remove"|"rm")
@@ -1168,7 +1220,19 @@ jvc() {
           fi
         else 
           jvc_warn "Your current julia is not maintained by jvc."
-          jvc_echo "Manual intervention is requied."
+          jvc_echo "Current julia directory is $(dirname $(command -v julia))"
+          jvc_echo "This is incompatible with JULIA_SYMLINK_DIR=$JULIA_SYMLINK_DIR"
+          jvc_echo "Manual intervention is required."
+          if jvc_confirm2 "N" "Do you want to remove your $(command -v julia)? (y/N) ? "; then
+            local old_julia_path="$(command -v julia)"
+            if rm -i "$old_julia_path"; then
+                jvc_done "$old_julia_path has been removed."
+            else
+              exit 7
+            fi
+            shift 
+            jvc switch "$1"
+          fi
         fi
       else 
         shift
