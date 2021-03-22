@@ -4,38 +4,118 @@
 # HTTP error code for download
 # Add Mac support
 # Add secure protocols for download
-# Fix curl only utilties
+# Fix curl only utilities
 # Fix path double slash
 # Fix realpath (realpath may not be available in various distributions)
+# Add test 
 
 #!/usr/bin/env bash
 source "$(dirname "$0")/.jvcrc"
 JVC_DIR="$(dirname "$0")"
-JVC_VERSION="0.2.4"
+JVC_VERSION="0.2.5"
+
+# Check ANSI support
+# Rustup: https://github.com/rust-lang/rustup/blob/master/rustup-init.sh
+jvc_has_ansi() {
+  if [ -t 2 ]; then
+    if [ "${TERM+set}" = 'set' ]; then
+      case "$TERM" in
+        xterm*|rxvt*|urxvt*|linux*|vt*|st*|screen*)
+          return 0
+          ;;
+      esac
+    fi
+  fi
+  return 3
+}
+
+jvc_has() {
+  type "${1-}" > /dev/null 2>&1
+}
 
 # Basic std
 jvc_echo() {
   command printf %s\\n "$*" 2>/dev/null
 }
 
-jvc_err() {
-  bold=$(command tput bold)
-  command printf "\e[31m${bold}Error: %s\e[m\\n" "$*" 2>/dev/null
+
+
+
+jvc_get_style() {
+  case "$1" in 
+    bold)
+      echo 1
+      ;;
+      *)
+      echo 0
+  esac 
+}
+jvc_get_style_color() {
+  local style
+  style=$(jvc_get_style "$1")
+  case "$2" in
+    0) # black
+    echo "\033[${style};30m%s\033[0m\n"  
+      ;;
+    1) # red 
+    echo "\033[${style};31m%s\033[0m\n"       
+      ;;
+    2) # green 
+    echo "\033[${style};32m%s\033[0m\n"    
+      ;;
+    3) # yellow 
+    echo "\033[${style};33m%s\033[0m\n"  
+      ;;
+    4) # blue 
+    echo "\033[${style};34m%s\033[0m\n"   
+      ;;
+    5) # magenta
+    echo "\033[${style};35m%s\033[0m\n"
+      ;;
+    6) # cyan 
+    echo "\033[${style};36m%s\033[0m\n" 
+      ;;
+    7) # white 
+    echo "\033[${style};37m%s\033[0m\n"
+    ;;
+    *) 
+    echo "\033[${style}m%s\033[0m\n"
+      ;;
+  esac
+}
+
+jvc_log() {
+  local style
+  local color
+  local tag 
+  [ -n "$1" ] && style=$(tput "$1") || style=""
+  [ -n "$2" ] && color=$(tput setaf "$2") || color=""
+  tag="${3}"
+  if $(jvc_has tput1); then
+    command printf "${color}${style}%s\n" "${tag}${4:-}" 2>/dev/null
+  elif $(jvc_has_ansi); then
+    local style_and_color
+    style_and_color=$(jvc_get_style_color "${1}" "${2}")
+    command printf "${style_and_color}" "${tag}${4:-}" 2>/dev/null
+  fi
 }
 
 jvc_warn() {
-  bold=$(command tput bold)
-  command printf "\e[33m${bold}Warning: %s\e[m\\n" "$*" 2>/dev/null
+  jvc_log "bold" "3" "Warning: " "$*"
 }
 
 jvc_done() {
-  bold=$(command tput bold)
-  command printf "\e[32m${bold}%s\e[m\\n" "$*" 2>/dev/null
+  jvc_log "bold" "2" "" "$*"
+  # bold=$(command tput bold)
+  # command printf "\e[32m${bold}%s\e[m\\n" "$*" 2>/dev/null
 }
 
-jvc_has() {
-  type "${1-}" > /dev/null 2>&1
+jvc_err() {
+  jvc_log "bold" "1" "Error: " "$*"
+  # bold=$(command tput bold)
+  # command printf "\e[31m${bold}Error: %s\e[m\\n" "$*" 2>/dev/null
 }
+
 
 # Unable to track
 jvc_has_julia_installed() {
