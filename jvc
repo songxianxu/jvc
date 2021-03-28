@@ -971,7 +971,7 @@ jvc_installed_version() {
 jvc_has_version_installed() {
   local version
   version="$1"
-  if [ -n "$(command find "$JULIA_INSTALL_DIR" -maxdepth 1 -mindepth 1-type d -name "julia-$version")" ]; then
+  if [ -n "$(command find "$JULIA_INSTALL_DIR" -maxdepth 1 -mindepth 1 -type d -name "julia-$version")" ]; then
     return 0
   else 
     return 1
