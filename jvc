@@ -14,7 +14,7 @@ JULIA_DOWNLOAD_DIR=${JULIA_DOWNLOAD_DIR%/}
 JULIA_INSTALL_DIR=${JULIA_INSTALL_DIR%/}
 JULIA_SYMLINK_DIR=${JULIA_SYMLINK_DIR%/}
 JVC_DIR="$(dirname "$0")"
-JVC_VERSION="0.2.6"
+JVC_VERSION="0.3.0"
 
 
 # Check ANSI support
@@ -94,11 +94,11 @@ jvc_log() {
   [ -n "$2" ] && color=$(tput setaf "$2") || color=""
   tag="${3}"
   if $(jvc_has tput); then
-    command printf "${color}${style}%s\n" "${tag}${4:-}" 2>/dev/null
+    command printf "${color}${style}%s $(tput sgr0)\n" "${tag}${4:-}" 2>/dev/null
   elif $(jvc_has_ansi); then
     local style_and_color
     style_and_color=$(jvc_get_style_color "${1}" "${2}")
-    command printf "${style_and_color}\n" "${tag}${4:-}" 2>/dev/null
+    command printf "${style_and_color}" "${tag}${4:-}" 2>/dev/null
   fi
 }
 
@@ -139,6 +139,16 @@ jvc_is_semver() {
 
 jvc_is_major() {
   echo "$1" | grep -qE "^(0|[1-9]\d*)$"
+}
+
+jvc_get_major() {
+  if [ "$1" = "nightly" ]; then
+    local major_version
+    major_version=$(ls "$JULIA_INSTALL_DIR/julia-nightly/" | grep -Eo "([[:digit:]]\.[[:digit:]])")
+    echo "$major_version"
+  else
+    echo "$1" | cut -d '.' -f 1,2
+  fi
 }
 
 jvc_is_major_minor() {
@@ -283,8 +293,8 @@ jvc_get_upstream_list_local(){
   else
     jvc_err "Upstream config file upstream.conf is missing"
     exit 1
-  fi
-}
+    fi
+  }
 
 
 #deprecated
@@ -845,15 +855,22 @@ jvc_mount() {
   local version
   version="$1"
   if [ "$version" = "nightly" ]; then
-    if hdiutil "$JULIA_DOWNLOAD_DIR/julia-nightly.dmg" -quiet -mount required -mountpoint "$JULIA_INSTALL_DIR/julia-nightly"; then 
+    if hdiutil attach "$JULIA_DOWNLOAD_DIR/julia-nightly.dmg" -quiet -mount required -mountpoint "$JULIA_DOWNLOAD_DIR/julia-nightly"; then 
+      local major_version
+      major_version=$(ls "$JULIA_DOWNLOAD_DIR/julia-nightly/" | grep -Eo "([[:digit:]]\.[[:digit:]])")
+      cp -R "$JULIA_DOWNLOAD_DIR/julia-nightly/Julia-$major_version.app" "$JULIA_INSTALL_DIR/julia-$version/"
       jvc_done "Extraction completed."
+      hdiutil unmount "$JULIA_DOWNLOAD_DIR/julia-nightly"
     else
       jvc_err "Extaction failed."
     fi
   else
-    if hdiutil "$JULIA_DOWNLOAD_DIR/julia-$version.dmg" -quiet -mount required -mountpoint "$JULIA_INSTALL_DIR"; then
+    if hdiutil attach "$JULIA_DOWNLOAD_DIR/julia-$version.dmg" -quiet -mount required -mountpoint "$JULIA_DOWNLOAD_DIR/julia-$version"; then
+      local major_version
+      major_version=$(jvc_get_major "$version")
+      cp -R "$JULIA_DOWNLOAD_DIR/julia-$version/Julia-$major_version.app" "$JULIA_INSTALL_DIR/julia-$version/"
       jvc_done "Extraction completed."
-      hdiutil unmount
+      hdiutil unmount "$JULIA_DOWNLOAD_DIR/julia-$version"
     else
       jvc_err "Extaction failed."
     fi
@@ -869,6 +886,26 @@ jvc_link() {
   jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
   ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
 }
+
+# jvc_link version
+jvc_link_mac() {
+  local version
+  version="$1"
+  if [ "$version" = "nightly" ]; then
+    echo Creating symbolic link julia-"$version" in "$JULIA_SYMLINK_DIR"
+    jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
+    local major_version
+    major_version=$(ls "$JULIA_INSTALL_DIR/julia-nightly/" | grep -Eo "([[:digit:]]\.[[:digit:]])")
+    ln -sf "$JULIA_INSTALL_DIR/julia-$version/Julia-$major_version.app/Contents/Resources/julia/bin/julia" "$JULIA_SYMLINK_DIR/julia-$version"
+  else
+    echo Creating symbolic link julia-"$version" in "$JULIA_SYMLINK_DIR"
+    jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
+    local major_version
+    major_version=$(jvc_get_major "$version")
+    ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/Julia-$major_version.app/Contents/Resources/julia/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
+  fi
+}
+
 
 has_symlink_version() {
   local version
@@ -891,7 +928,11 @@ jvc_load() {
   local version
   version=$1
   local bin_julia
-  bin_julia=$JULIA_INSTALL_DIR/julia-$version/bin/julia 
+  if [ "$JVC_SYS" = "mac" ]; then
+    bin_julia="$JULIA_INSTALL_DIR/julia-$version/Julia-$(jvc_get_major $version).app/Contents/Resources/julia/bin/julia"
+  else
+    bin_julia="$JULIA_INSTALL_DIR/julia-$version/bin/julia"
+  fi
   if $(has_symlink_version "$version") ; then 
     jvc_warn "julia-$version already exist in $JULIA_SYMLINK_DIR" 
   else
@@ -921,7 +962,7 @@ jvc_unload() {
 }
 
 jvc_installed_version() {
-  command find "$JULIA_INSTALL_DIR" -maxdepth 1 -type d -name "julia-*"  \
+  command find "$JULIA_INSTALL_DIR" -depth 1 -type d -name "julia-*"  \
     | command awk -F"$JULIA_INSTALL_DIR" '{print $2}' \
     | command awk -F"julia-" '{print $2}' | sort -r 
   }
@@ -958,14 +999,14 @@ jvc_has_version_downloaded() {
 jvc_loaded_version() {
   # ls "$JULIA_SYMLINK_DIR" | grep julia- | cut -d "-" -f2- 
   # ls "$JULIA_SYMLINK_DIR"/julia-* | cut -d "-" -f2- 
-  command find "$JULIA_SYMLINK_DIR" -maxdepth 1 -name "julia-*"  \
+  command find "$JULIA_SYMLINK_DIR" -depth 1 -name "julia-*"  \
     | cut -d "-" -f2- | sort -r 
   }
 
 
 jvc_downloaded_version() {
   cd "$JULIA_DOWNLOAD_DIR" || return 1
-  ls julia-*.tar.gz   
+  ls julia-*   
 }
 
 
@@ -1097,7 +1138,6 @@ jvc_install_linux() {
 
 
 jvc_install_mac() {
-  # jvc_echo "Coming soon...(22/03/2021)"
   local version
   version="$1"
   local url
@@ -1108,7 +1148,8 @@ jvc_install_mac() {
   if jvc_confirm2 "Y" "Continue to install Julia $version ? [Y/n] ";  then
     if jvc_has_version_installed $version; then
       jvc_warn "Installation folder for version $version directory exists"
-      if jvc_confirm2 "Y" "Overwriting existing contents? [Y/n] "; then
+      if jvc_confirm2 "Y" "Reinstall version $version ? [Y/n] "; then
+        rm -rf "$JULIA_INSTALL_DIR/julia-$version"
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         jvc_download_tarball "$url" "$version" 
         jvc_mount "$version"
@@ -1120,7 +1161,7 @@ jvc_install_mac() {
       jvc_download_tarball "$url" "$version" 
       mkdir "$JULIA_INSTALL_DIR"/julia-"$version"
       jvc_mount "$version"
-      jvc_link "$version"
+      jvc_link_mac "$version"
     fi
   fi 
   jvc_done "Installation done."
@@ -1141,6 +1182,7 @@ jvc_download() {
 
 # jvc main
 jvc() {
+  jvc_get_sys_info 
   args=("$@")
   n_args=${#args[@]}
 
@@ -1221,131 +1263,103 @@ jvc() {
           jvc_install_linux "$version"
           ;;
         "mac")
-          echo "To be tested. I do not have a Mac."
-          # jvc_install_mac "$version"
-        esac
-        ;;
-      "remove"|"rm")
-        shift
-        if [ -n "$1" ]; then
-          jvc_warn "No version number is needed to specified"
-        fi
-        echo You have installed the following version:
-        jvc_installed_version
-        printf "Enter the version you would like to remove: "
-        read -r rm_version 
+          jvc_install_mac "$version"
+      esac
+      ;;
+    "remove"|"rm")
+      shift
+      if [ -n "$1" ]; then
+        jvc_warn "No version number is needed to specified"
+      fi
+      echo You have installed the following version:
+      jvc_installed_version
+      printf "Enter the version you would like to remove: "
+      read -r rm_version 
 
-        if ! jvc_is_semver "$rm_version"; then
-          jvc_err "Not a valid version."; 
-          return 9
-        fi
-        jvc_check_version_installed "$rm_version"
+      #if ! jvc_is_semver "$rm_version"; then
+        #jvc_err "Not a valid version."; 
+        #return 9
+      #fi
+      jvc_check_version "$rm_version" || exit 9
+      jvc_check_version_installed "$rm_version"
 
-        local rm_symlink
-        rm_symlink=$JULIA_SYMLINK_DIR/julia-$rm_version
-        local rm_bin
-        rm_bin=$JULIA_INSTALL_DIR/julia-$rm_version
+      local rm_symlink
+      rm_symlink=$JULIA_SYMLINK_DIR/julia-$rm_version
+      local rm_bin
+      rm_bin=$JULIA_INSTALL_DIR/julia-$rm_version
 
-        if jvc_confirm2 "Y" "You are about remove $rm_version from $JULIA_INSTALL_DIR. [Y/n] " ;  then
-          # TODO: verbose for remove 
-          rm -rf  "$rm_bin" 
-          [ -L "$rm_symlink" ] && rm -rf "$rm_symlink"
-          jvc_done "Uninstallation done."
-        fi
-        ;;
-      "download")
-        shift
-        local raw_version
-        raw_version="${1-}"
-        # Check version format
-        jvc_get_sys_info 
-        jvc_get_version "$raw_version" 
-        local version
-        version=$INSTALLING_VER
-        jvc_download "$version" 
+      if jvc_confirm2 "Y" "You are about remove $rm_version from $JULIA_INSTALL_DIR. [Y/n] " ;  then
+        # TODO: verbose for remove 
+        rm -rf  "$rm_bin" 
+        [ -L "$rm_symlink" ] && rm -rf "$rm_symlink"
+        jvc_done "Uninstallation done."
+      fi
+      ;;
+    "download")
+      shift
+      local raw_version
+      raw_version="${1-}"
+      # Check version format
+      jvc_get_sys_info 
+      jvc_get_version "$raw_version" 
+      local version
+      version=$INSTALLING_VER
+      jvc_download "$version" 
 
-        ;;
-      "load")
-        #TODO: autocompletion from installed_list
-        shift 
-        jvc_check_null "$1" "version number is required for load argument" 
-        local load_version="$1"
-        jvc_check_version "$1" || return 9
-        jvc_check_version_installed "$1" 
-        jvc_load "$load_version" 
-        ;;
-      "unload")
-        shift 
-        jvc_check_null "$1" "version number is required for unload argument" 
-        local unload_version=$1
-        jvc_check_version "$1" || return 9
-        jvc_unload "$unload_version"
-        ;;
-      "loaded")
-        jvc_loaded_version
-        ;;
-      "status"|"st")
-        echo ===================================
-        echo "Installed version" "$JULIA_INSTALL_DIR"
-        jvc_installed_version
-        echo ===================================
-        echo "Loaded version" "$JULIA_SYMLINK_DIR"
-        jvc_loaded_version
-        echo ===================================
-        echo "Downloaded version" "$JULIA_DOWNLOAD_DIR"
-        jvc_downloaded_version
-        echo ===================================
-        echo "Current upstream is $UPSTREAM_NAME"
-        ;;
-      "available"|"avail")
-        shift
-        case "$1" in
-          "stable"|"")
-            jvc_ls_stable  
-            ;;
-          "all")
-            jvc_ls_all
-            ;;
-        esac
-        ;;
-      "search")
-        # TODO: rewrite version search logic together with download/install 
-        shift 
-        jvc_get_version "$1"
-        ;;
-      "switch")
-        # TODO Check if current julia symlink are maintained by jvc
-        if jvc_has_julia_installed; then
-          if [  "$(dirname $(command -v julia))" = "$JULIA_SYMLINK_DIR" ]; then
-            #  Maintained
-            shift
-            jvc_check_null $1 "version number is required for switch"
-            local version=$1 
-            if [ -n "$version" ]; then
-              jvc_check_version "$1" || return 1
-              jvc_switch "$version" 
-            else
-              jvc_err "Please input a valid version"
-              jvc_echo "Available versions are:"
-              jvc installed
-            fi
-          else 
-            jvc_warn "Your current julia is not maintained by jvc."
-            jvc_echo "Current julia directory is $(dirname $(command -v julia))"
-            jvc_echo "This is incompatible with JULIA_SYMLINK_DIR=$JULIA_SYMLINK_DIR"
-            jvc_echo "Manual intervention is required."
-            if jvc_confirm2 "N" "Do you want to remove your $(command -v julia)? (y/N) ? "; then
-              local old_julia_path="$(command -v julia)"
-              if rm -i "$old_julia_path"; then
-                jvc_done "$old_julia_path has been removed."
-              else
-                exit 7
-              fi
-              shift 
-              jvc switch "$1"
-            fi
-          fi
-        else 
+      ;;
+    "load")
+      #TODO: autocompletion from installed_list
+      shift 
+      jvc_check_null "$1" "version number is required for load argument" 
+      local load_version="$1"
+      jvc_check_version "$1" || return 9
+      jvc_check_version_installed "$1" 
+      jvc_load "$load_version" 
+      ;;
+    "unload")
+      shift 
+      jvc_check_null "$1" "version number is required for unload argument" 
+      local unload_version=$1
+      jvc_check_version "$1" || return 9
+      jvc_unload "$unload_version"
+      ;;
+    "loaded")
+      jvc_loaded_version
+      ;;
+    "status"|"st")
+      echo ===================================
+      echo "Installed version" "$JULIA_INSTALL_DIR"
+      jvc_installed_version
+      echo ===================================
+      echo "Loaded version" "$JULIA_SYMLINK_DIR"
+      jvc_loaded_version
+      echo ===================================
+      echo "Downloaded version" "$JULIA_DOWNLOAD_DIR"
+      jvc_downloaded_version
+      echo ===================================
+      echo "Current upstream is $UPSTREAM_NAME"
+      ;;
+    "available"|"avail")
+      shift
+      case "$1" in
+        "stable"|"")
+          jvc_ls_stable  
+          ;;
+        "all")
+          jvc_ls_all
+          ;;
+      esac
+      ;;
+    "search")
+      # TODO: rewrite version search logic together with download/install 
+      shift 
+      jvc_get_version "$1"
+      ;;
+    "switch")
+      # TODO Check if current julia symlink are maintained by jvc
+      if jvc_has_julia_installed; then
+        if [  "$(dirname $(command -v julia))" = "$JULIA_SYMLINK_DIR" ]; then
+          #  Maintained
           shift
           jvc_check_null $1 "version number is required for switch"
           local version=$1 
@@ -1357,58 +1371,86 @@ jvc() {
             jvc_echo "Available versions are:"
             jvc installed
           fi
+        else 
+          jvc_warn "Your current julia is not maintained by jvc."
+          jvc_echo "Current julia directory is $(dirname $(command -v julia))"
+          jvc_echo "This is incompatible with JULIA_SYMLINK_DIR=$JULIA_SYMLINK_DIR"
+          jvc_echo "Manual intervention is required."
+          if jvc_confirm2 "N" "Do you want to remove your $(command -v julia)? (y/N) ? "; then
+            local old_julia_path="$(command -v julia)"
+            if rm -i "$old_julia_path"; then
+              jvc_done "$old_julia_path has been removed."
+            else
+              exit 7
+            fi
+            shift 
+            jvc switch "$1"
+          fi
         fi
-        ;;
-      "nightly") 
-        jvc_get_sys_info #JVC_SYS JVC_ARCH JVC_SUFFIX 
-        [ ! "$UPSTREAM_NAME" = "Official" ]  && jvc_warn "Nightly release is only available for Official upstream."
-        case "$JVC_SYS" in
-          "linux")
-            jvc_install_linux "nightly"
-            ;;
-          "darwin")
-            jvc_install_mac "nightly"
-        esac
-        ;;
-      "installed")
-        echo List all Julia version installed 
-        jvc_installed_version
-        ;;
-      "upstream")
-        echo Current upstream is "$UPSTREAM_NAME"
-        echo The available upstreams are: 
-        local upstream_list
-        upstream_list=$(jvc_get_upstream_list_local)
-        local upstream_short=($(echo "${upstream_list[@]}" | awk -F[.:] '{print $1}'))
-        jvc_split "$upstream_list" , upstream_menu
-        unset 'upstream_menu[-1]'
-        echo "${upstream_list[@]}" | awk -F[.:] '{print "  " NR ". " $1 ": " $2}'
-        printf "Select your preferred upstream. (Enter number [1-%i]): "  "${#upstream_menu[@]}"
-        read -r upstream_choice
-        if echo "$upstream_choice" | grep -Eq "^([0-${#upstream_menu[@]}])$" ; then 
-          local jvc_dir
-          jvc_dir=$(dirname "$0")
-          sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" "$jvc_dir"/.jvcrc
-          jvc_echo "Your upstream is switched to ${upstream_short[$upstream_choice-1]}."
-        else
-          jvc_echo "Aborted."
-        fi
-        ;;
-      "purge")
-        jvc_purge
-        ;;
-      "migrate")
+      else 
         shift
-        jvc_migrate "$1" "$2" "$3"
-        ;;
-      "version" | "-v" | "--version")
-        jvc_echo "Julia Version Control (JVC) version $JVC_VERSION"
-        jvc_echo "Author: Xiansong Xu (songxianxu@gmail.com)"
-        ;;
-      *) 
-        jvc_warn Unsupported arguements. Check your input.
-    esac
-  }
+        jvc_check_null $1 "version number is required for switch"
+        local version=$1 
+        if [ -n "$version" ]; then
+          jvc_check_version "$1" || return 1
+          jvc_switch "$version" 
+        else
+          jvc_err "Please input a valid version"
+          jvc_echo "Available versions are:"
+          jvc installed
+        fi
+      fi
+      ;;
+    "nightly") 
+      jvc_get_sys_info #JVC_SYS JVC_ARCH JVC_SUFFIX 
+      [ ! "$UPSTREAM_NAME" = "Official" ]  && jvc_warn "Nightly release is only available for Official upstream."
+      case "$JVC_SYS" in
+        "linux")
+          jvc_install_linux "nightly"
+          ;;
+        "darwin")
+          jvc_install_mac "nightly"
+      esac
+      ;;
+    "installed")
+      echo List all Julia version installed 
+      jvc_installed_version
+      ;;
+    "upstream")
+      echo Current upstream is "$UPSTREAM_NAME"
+      echo The available upstreams are: 
+      local upstream_list
+      upstream_list=$(jvc_get_upstream_list_local)
+      local upstream_short=($(echo "${upstream_list[@]}" | awk -F[.:] '{print $1}'))
+      jvc_split "$upstream_list" , upstream_menu
+      unset 'upstream_menu[${#upstream_menu[@]}-1]'
+      echo "${upstream_list[@]}" | awk -F[.:] '{print "  " NR ". " $1 ": " $2}'
+      printf "Select your preferred upstream. (Enter number [1-%i]): "  "${#upstream_menu[@]}"
+      read -r upstream_choice
+      if echo "$upstream_choice" | grep -Eq "^([0-${#upstream_menu[@]}])$" ; then 
+        local jvc_dir
+        jvc_dir=$(dirname "$0")
+        sed -i "s/UPSTREAM_NAME=.*/UPSTREAM_NAME=${upstream_short[$upstream_choice-1]}/" "$jvc_dir"/.jvcrc
+        jvc_echo "Your upstream is switched to ${upstream_short[$upstream_choice-1]}."
+      else
+        jvc_echo "Aborted."
+      fi
+      ;;
+    "purge")
+      jvc_purge
+      ;;
+    "migrate")
+      shift
+      jvc_migrate "$1" "$2" "$3"
+      ;;
+    "version" | "-v" | "--version")
+      jvc_echo "Julia Version Control (JVC) version $JVC_VERSION"
+      jvc_echo "Author: Xiansong Xu (songxianxu@gmail.com)"
+      ;;
+    *) 
+      jvc_warn Unsupported arguements. Check your input.
+  esac
+}
 
 jvc $@ 
 
