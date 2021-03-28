@@ -962,7 +962,7 @@ jvc_unload() {
 }
 
 jvc_installed_version() {
-  command find "$JULIA_INSTALL_DIR" -depth 1 -type d -name "julia-*"  \
+  command find "$JULIA_INSTALL_DIR" -maxdepth 1 -mindepth 1 -type d -name "julia-*"  \
     | command awk -F"$JULIA_INSTALL_DIR" '{print $2}' \
     | command awk -F"julia-" '{print $2}' | sort -r 
   }
@@ -971,7 +971,7 @@ jvc_installed_version() {
 jvc_has_version_installed() {
   local version
   version="$1"
-  if [ -n "$(command find "$JULIA_INSTALL_DIR" -maxdepth 1 -type d -name "julia-$version")" ]; then
+  if [ -n "$(command find "$JULIA_INSTALL_DIR" -maxdepth 1 -mindepth 1-type d -name "julia-$version")" ]; then
     return 0
   else 
     return 1
@@ -988,7 +988,7 @@ jvc_check_version_installed() {
 jvc_has_version_downloaded() {
   local version
   version="$1"
-  if [ -n "$(command find "$JULIA_DOWNLOAD_DIR" -maxdepth 1 -type f -name "julia-$version.*")" ]; then
+  if [ -n "$(command find "$JULIA_DOWNLOAD_DIR" -maxdepth 1 -mindepth 1 -type f -name "julia-$version.*")" ]; then
     return 0
   else 
     return 1
@@ -999,7 +999,7 @@ jvc_has_version_downloaded() {
 jvc_loaded_version() {
   # ls "$JULIA_SYMLINK_DIR" | grep julia- | cut -d "-" -f2- 
   # ls "$JULIA_SYMLINK_DIR"/julia-* | cut -d "-" -f2- 
-  command find "$JULIA_SYMLINK_DIR" -depth 1 -name "julia-*"  \
+  command find "$JULIA_SYMLINK_DIR" -maxdepth 1 -mindepth 1 -name "julia-*"  \
     | cut -d "-" -f2- | sort -r 
   }
 
