@@ -93,12 +93,12 @@ jvc_log() {
   [ -n "$1" ] && style=$(tput "$1") || style=""
   [ -n "$2" ] && color=$(tput setaf "$2") || color=""
   tag="${3}"
-  if $(jvc_has tput1); then
+  if $(jvc_has tput); then
     command printf "${color}${style}%s\n" "${tag}${4:-}" 2>/dev/null
   elif $(jvc_has_ansi); then
     local style_and_color
     style_and_color=$(jvc_get_style_color "${1}" "${2}")
-    command printf "${style_and_color}" "${tag}${4:-}" 2>/dev/null
+    command printf "${style_and_color}\n" "${tag}${4:-}" 2>/dev/null
   fi
 }
 
@@ -558,7 +558,7 @@ jvc_get_url_from_sys_arch_version() {
   full_arch="$2"
   version="$3"
   suffix="$4"
-  if echo "$full_arch" | grep -qE "^*64"; then
+  if echo "$full_arch" | grep -qE "^.*64"; then
     arch="x64"
   else
     arch="x32"
@@ -747,7 +747,6 @@ jvc_download_tarball_curl() {
   filename="julia-$version.$JVC_SUFFIX"
   if  [ ! -f "$JULIA_DOWNLOAD_DIR/$filename" ]; then
     echo " Downloading from $url"
-    echo -n "    "
     if curl --progress-bar --compressed "$url" --output "$JULIA_DOWNLOAD_DIR/$filename"; then
       jvc_compare_checksum "$version" "$filename"
       jvc_done "Downloading finished."
@@ -854,6 +853,7 @@ jvc_mount() {
   else
     if hdiutil "$JULIA_DOWNLOAD_DIR/julia-$version.dmg" -quiet -mount required -mountpoint "$JULIA_INSTALL_DIR"; then
       jvc_done "Extraction completed."
+      hdiutil unmount
     else
       jvc_err "Extaction failed."
     fi
@@ -1112,7 +1112,7 @@ jvc_install_mac() {
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
         jvc_download_tarball "$url" "$version" 
         jvc_mount "$version"
-        jvc_link "$version"
+        jvc_link_mac "$version"
       fi
 
     else 
@@ -1220,7 +1220,7 @@ jvc() {
         "linux")
           jvc_install_linux "$version"
           ;;
-        "darwin")
+        "mac")
           echo "To be tested. I do not have a Mac."
           # jvc_install_mac "$version"
         esac
