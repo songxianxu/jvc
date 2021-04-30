@@ -1,14 +1,15 @@
+#!/usr/bin/env bash
+
 # TODO:
 
 # Revise load logic, same as install. jvc load 1.5 julia-1.5 => julia-1.5.newest locally
-# HTTP error code for download
-# Add Mac support
+# Add full Mac support
 # Add secure protocols for download
 # Fix path double slash (double slash behavior imposed by ln -sf)
 # Add test 
+# HTTP error code for download
 # Better download 
 
-#!/usr/bin/env bash
 source "$(dirname "$0")/.jvcrc"
 JULIA_DOWNLOAD_DIR=${JULIA_DOWNLOAD_DIR%/}
 JULIA_INSTALL_DIR=${JULIA_INSTALL_DIR%/}
@@ -57,31 +58,31 @@ jvc_get_style_color() {
   style=$(jvc_get_style "$1")
   case "$2" in
     0) # black
-      echo "\033[${style};30m%s\033[0m\n"  
+      printf "\033[${style};30m%s\033[0m\n"  
       ;;
     1) # red 
-      echo "\033[${style};31m%s\033[0m\n"       
+      printf "\033[${style};31m%s\033[0m\n"       
       ;;
     2) # green 
-      echo "\033[${style};32m%s\033[0m\n"    
+      printf "\033[${style};32m%s\033[0m\n"    
       ;;
     3) # yellow 
-      echo "\033[${style};33m%s\033[0m\n"  
+      printf "\033[${style};33m%s\033[0m\n"  
       ;;
     4) # blue 
-      echo "\033[${style};34m%s\033[0m\n"   
+      printf "\033[${style};34m%s\033[0m\n"   
       ;;
     5) # magenta
-      echo "\033[${style};35m%s\033[0m\n"
+      printf "\033[${style};35m%s\033[0m\n"
       ;;
     6) # cyan 
-      echo "\033[${style};36m%s\033[0m\n" 
+      printf "\033[${style};36m%s\033[0m\n" 
       ;;
     7) # white 
-      echo "\033[${style};37m%s\033[0m\n"
+      printf "\033[${style};37m%s\033[0m\n"
       ;;
     *) 
-      echo "\033[${style}m%s\033[0m\n"
+      printf "\033[${style}m%s\033[0m\n"
       ;;
   esac
 }
@@ -93,14 +94,15 @@ jvc_log() {
   [ -n "$1" ] && style=$(tput "$1") || style=""
   [ -n "$2" ] && color=$(tput setaf "$2") || color=""
   tag="${3}"
-  if $(jvc_has tput); then
+  if jvc_has "tput"; then
     command printf "${color}${style}%s $(tput sgr0)\n" "${tag}${4:-}" 2>/dev/null
-  elif $(jvc_has_ansi); then
+  elif jvc_has_ansi; then
     local style_and_color
     style_and_color=$(jvc_get_style_color "${1}" "${2}")
     command printf "${style_and_color}" "${tag}${4:-}" 2>/dev/null
   fi
 }
+
 
 jvc_warn() {
   jvc_log "bold" "3" "Warning: " "$*"
@@ -277,12 +279,13 @@ jvc_get_upstream_local() {
 
 jvc_get_upstream_bin_url(){
   local upstream_name=$1
-  echo "$(jvc_get_upstream_url "$upstream_name" | awk -F'$' '{print $1}')"
+  jvc_get_upstream_url "$upstream_name" | awk -F'$' '{print $1}'
 }
+
 
 jvc_get_upstream_bin_local(){
   local upstream_name=$1
-  echo "$(jvc_get_upstream_local "$upstream_name" | awk -F'$' '{print $1}')"
+  jvc_get_upstream_local "$upstream_name" | awk -F'$' '{print $1}'
 }
 
 jvc_get_upstream_list_local(){
@@ -301,7 +304,6 @@ jvc_get_upstream_list_local(){
 jvc_get_upstream_list(){
   # curl -s "https://raw.githubusercontent.com/johnnychen94/jill.py/master/jill/config/sources.json" | awk '/"name"/ {print p " " $0 }{p=$0} ' | awk -F: '{print $1 ": " $3}' | tr -d '"' | awk '{$1=$1;print "  " NR ". " $0}'  
   local upstream_info
-  local status
   upstream_info=$(curl -s -L "https://raw.githubusercontent.com/johnnychen94/jill.py/master/jill/config/sources.json" 2>/dev/null || echo $?)
   # curl -s "https://raw.githubusercontent.com/johnnychen94/jill.py/master/jill/config/sources.json" | awk '/"name"/ {print p " " $0 }{p=$0} ' | awk -F: '{print $1 ": " $3}' | tr -d '"' | awk '{$1=$1;print $0}'  
   echo "$upstream_info" | awk '/"name"/ {print p " " $0 }{p=$0} ' | awk -F: '{print $1 ": " $3}' | tr -d '"' | awk '{$1=$1;print $0}'  
@@ -325,7 +327,7 @@ jvc_get_version_from_json() {
 jvc_get_version_from_json_online() {
   local versions
   local upstream_url
-  upstream_url="$(jvc_get_upstream_bin_local $UPSTREAM_NAME)"
+  upstream_url="$(jvc_get_upstream_bin_local "$UPSTREAM_NAME")"
   versions=$($(jvc_cuget) "${upstream_url}versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}')
   # versions=$(curl -s "${upstream_url}versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}')
   # versions=$(wget -O- -q "${upstream_url}versions.json" | awk '/files/ {print line} {line =$0}' | awk -F: '{print $1}')
@@ -583,7 +585,7 @@ jvc_get_url_from_sys_arch_version() {
       local url
       url=$(jvc_get_upstream_local "$UPSTREAM_NAME")
       local filename
-      filename="$(jvc_generate_filename $sys $full_arch $version)"
+      filename="$(jvc_generate_filename "$sys" "$full_arch" "$version")"
       eval "echo $url"
   esac
 }
@@ -695,7 +697,7 @@ jvc_get_remote_checksum() {
   local version
   version=$1 
   local julia_remote_tarball
-  julia_remote_tarball=$(jvc_generate_filename $JVC_SYS $JVC_ARCH $version)
+  julia_remote_tarball=$(jvc_generate_filename "$JVC_SYS" "$JVC_ARCH" "$version")
   local checksum_url
   # checksum_url=$(jvc_get_upstream_bin_url "$UPSTREAM_NAME")
   checksum_url=$(jvc_get_upstream_bin_local "$UPSTREAM_NAME")
@@ -712,7 +714,7 @@ jvc_compare_checksum() {
   local filename
   version="$1"
   filename="$2"
-  if [ $version = "nightly" ]; then
+  if [ "$version" = "nightly" ]; then
     jvc_warn "Nightly installation will skip checksum as the it is not provided."
     return 0
   fi
@@ -798,7 +800,7 @@ jvc_download_tarball_wget() {
       jvc_compare_checksum "$version" "$filename"
       jvc_done "Downloading finished."
     else 
-      echo " Download fails with error code "$?". Please check your connection."
+      echo " Download fails with error code $?. Please check your connection."
       [ -e "$JULIA_DOWNLOAD_DIR/$filename" ] && rm -f "$JULIA_DOWNLOAD_DIR/$filename"
     fi
   else
@@ -902,7 +904,7 @@ jvc_link_mac() {
     jvc_checkfolder "create_symlink" "$JULIA_SYMLINK_DIR"
     local major_version
     major_version=$(jvc_get_major "$version")
-    ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/Julia-$major_version.app/Contents/Resources/julia/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
+    ln -sf "$JULIA_INSTALL_DIR"/julia-"$version"/Julia-"$major_version".app/Contents/Resources/julia/bin/julia "$JULIA_SYMLINK_DIR"/julia-"$version"
   fi
 }
 
@@ -929,7 +931,7 @@ jvc_load() {
   version=$1
   local bin_julia
   if [ "$JVC_SYS" = "mac" ]; then
-    bin_julia="$JULIA_INSTALL_DIR/julia-$version/Julia-$(jvc_get_major $version).app/Contents/Resources/julia/bin/julia"
+    bin_julia="$JULIA_INSTALL_DIR/julia-$version/Julia-$(jvc_get_major "$version").app/Contents/Resources/julia/bin/julia"
   else
     bin_julia="$JULIA_INSTALL_DIR/julia-$version/bin/julia"
   fi
@@ -956,7 +958,7 @@ jvc_unload() {
     rm "$JULIA_SYMLINK_DIR"/julia-"$version"
     jvc_done Symlink julia-"$version" has been removed from "$JULIA_SYMLINK_DIR"
   else
-    jvc_warn "julia-"$version" is not loaded. No operation is performed."
+    jvc_warn "julia-$version is not loaded. No operation is performed."
     jvc_echo "(Check loaded versions using 'jvc loaded'.)"
   fi
 }
@@ -1071,11 +1073,11 @@ jvc_migrate() {
   local objective
   objective="$@"
   local from_version
-  local to version
+  local to_version
   from_version=$1
   to_version=$3
   local depot_path
-  if [ -z $JULIA_DEPOT_PATH ]; then
+  if [ -z "$JULIA_DEPOT_PATH" ]; then
     echo "JULIA_DEPOT_PATH not found, using ~/.julia by default" 
     depot_path="$HOME/.julia"
   else 
@@ -1111,12 +1113,12 @@ jvc_install_linux() {
   local version
   version="$1"
   local url
-  url=$(jvc_get_url_from_sys_arch_version "$JVC_SYS" $JVC_ARCH "$version" "$JVC_SUFFIX")
+  url=$(jvc_get_url_from_sys_arch_version "$JVC_SYS" "$JVC_ARCH" "$version" "$JVC_SUFFIX")
 
   jvc_checkfolder install "$JULIA_INSTALL_DIR"
 
   if jvc_confirm2 "Y" "Continue to install Julia $version ? [Y/n] ";  then
-    if jvc_has_version_installed $version; then
+    if jvc_has_version_installed "$version"; then
       jvc_warn "Installation folder for version $version directory exists"
       if jvc_confirm2 "Y" "Overwriting existing contents? [Y/n] "; then
         jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
@@ -1141,12 +1143,12 @@ jvc_install_mac() {
   local version
   version="$1"
   local url
-  url=$(jvc_get_url_from_sys_arch_version "$JVC_SYS" $JVC_ARCH "$version" "$JVC_SUFFIX")
+  url=$(jvc_get_url_from_sys_arch_version "$JVC_SYS" "$JVC_ARCH" "$version" "$JVC_SUFFIX")
 
   jvc_checkfolder install "$JULIA_INSTALL_DIR"
 
   if jvc_confirm2 "Y" "Continue to install Julia $version ? [Y/n] ";  then
-    if jvc_has_version_installed $version; then
+    if jvc_has_version_installed "$version"; then
       jvc_warn "Installation folder for version $version directory exists"
       if jvc_confirm2 "Y" "Reinstall version $version ? [Y/n] "; then
         rm -rf "$JULIA_INSTALL_DIR/julia-$version"
@@ -1172,7 +1174,7 @@ jvc_install_mac() {
 jvc_download() {
   local version
   version="$1"
-  url=$(jvc_get_url_from_sys_arch_version "$JVC_SYS" $JVC_ARCH "$version" "$JVC_SUFFIX")
+  url=$(jvc_get_url_from_sys_arch_version "$JVC_SYS" "$JVC_ARCH" "$version" "$JVC_SUFFIX")
   if jvc_confirm2 "Y" "Continue to download Julia $version ? [Y/n] ";  then
     jvc_checkfolder download "$JULIA_DOWNLOAD_DIR"
     jvc_download_tarball "$url" "$version" 
@@ -1361,7 +1363,7 @@ jvc() {
         if [  "$(dirname $(command -v julia))" = "$JULIA_SYMLINK_DIR" ]; then
           #  Maintained
           shift
-          jvc_check_null $1 "version number is required for switch"
+          jvc_check_null "$1" "version number is required for switch"
           local version=$1 
           if [ -n "$version" ]; then
             jvc_check_version "$1" || return 1
@@ -1373,11 +1375,12 @@ jvc() {
           fi
         else 
           jvc_warn "Your current julia is not maintained by jvc."
-          jvc_echo "Current julia directory is $(dirname $(command -v julia))"
+          jvc_echo "Current julia directory is $(dirname "$(command -v julia)")"
           jvc_echo "This is incompatible with JULIA_SYMLINK_DIR=$JULIA_SYMLINK_DIR"
           jvc_echo "Manual intervention is required."
           if jvc_confirm2 "N" "Do you want to remove your $(command -v julia)? (y/N) ? "; then
-            local old_julia_path="$(command -v julia)"
+            local old_julia_path
+            old_julia_path="$(command -v julia)"
             if rm -i "$old_julia_path"; then
               jvc_done "$old_julia_path has been removed."
             else
@@ -1389,7 +1392,7 @@ jvc() {
         fi
       else 
         shift
-        jvc_check_null $1 "version number is required for switch"
+        jvc_check_null "$1" "version number is required for switch"
         local version=$1 
         if [ -n "$version" ]; then
           jvc_check_version "$1" || return 1
@@ -1452,5 +1455,5 @@ jvc() {
   esac
 }
 
-jvc $@ 
+jvc "$@"
 
